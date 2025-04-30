@@ -8,11 +8,15 @@ import {
   ActivityIndicator,
   ScrollView,
   SafeAreaView,
+  Alert
 } from 'react-native';
+
+
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../firebaseConfig';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
+
 
 const formatValue = (value) => {
   if (value === null || value === undefined) return 'N/A';
@@ -57,7 +61,6 @@ const ProfileScreen = ({ navigation }) => {
   });
 
   useEffect(() => {
-    const auth = getAuth();
     const user = auth.currentUser;
 
     const fetchUserData = async () => {
@@ -129,6 +132,98 @@ const ProfileScreen = ({ navigation }) => {
     }
   }, [loginData.id]);
 
+  const handleDeletePlayer = async (id, isCheerleader = false) => {
+    Alert.alert(
+      'Confirmar eliminación',
+      '¿Estás seguro de que quieres eliminar este registro?',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Eliminar',
+          onPress: async () => {
+            try {
+              setLoading(true);
+              const playerRef = doc(db, isCheerleader ? 'porristas' : 'jugadores', id);
+              await updateDoc(playerRef, {
+                activo: 'inactivo'
+              });
+              
+              if (isCheerleader) {
+                setCheerleaders(cheerleaders.filter(c => c.id !== id));
+              } else {
+                setPlayers(players.filter(p => p.id !== id));
+              }
+              
+              Alert.alert('Éxito', 'Registro marcado como inactivo');
+            } catch (error) {
+              console.error('Error al eliminar:', error);
+              Alert.alert('Error', 'No se pudo eliminar el registro');
+            } finally {
+              setLoading(false);
+            }
+          },
+          style: 'destructive',
+        },
+      ]
+    );
+  };
+
+  const handleDeleteAccount = async () => {
+    Alert.alert(
+      'Eliminar Cuenta',
+      '¿Estás seguro de que deseas eliminar tu cuenta permanentemente? Esta acción no se puede deshacer y se perderán todos tus datos.',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Eliminar',
+          onPress: async () => {
+            try {
+              setLoading(true);
+              
+              // Primero marcamos como inactivos todos los jugadores y porristas asociados
+              const batchUpdates = [];
+              
+              // Marcamos jugadores como inactivos
+              players.forEach(player => {
+                const playerRef = doc(db, 'jugadores', player.id);
+                batchUpdates.push(updateDoc(playerRef, { activo: 'inactivo' }));
+              });
+              
+              // Marcamos porristas como inactivas
+              cheerleaders.forEach(cheerleader => {
+                const cheerleaderRef = doc(db, 'porristas', cheerleader.id);
+                batchUpdates.push(updateDoc(cheerleaderRef, { activo: 'inactivo' }));
+              });
+              
+              // Ejecutamos todas las actualizaciones
+              await Promise.all(batchUpdates);
+              
+              // Eliminamos el usuario de Firebase Auth
+              const user = auth.currentUser;
+              await user.delete();
+              
+              // Navegamos al login
+              navigation.navigate('Login');
+              
+            } catch (error) {
+              console.error('Error al eliminar la cuenta:', error);
+              Alert.alert('Error', 'No se pudo eliminar la cuenta. Asegúrate de haber iniciado sesión recientemente.');
+            } finally {
+              setLoading(false);
+            }
+          },
+          style: 'destructive',
+        },
+      ]
+    );
+  };
+
   if (loading) {
     return (
       <View style={styles.container}>
@@ -155,13 +250,10 @@ const ProfileScreen = ({ navigation }) => {
           <View style={styles.menuContainer}>
             <View style={styles.menu}>
               <TouchableOpacity
-                style={styles.menuItem}
-                onPress={() => {
-                  setShowMenu(false);
-                  navigation.navigate('EditarPerfil');
-                }}
+                style={[styles.menuItem, styles.deleteAccountItem]}
+                onPress={handleDeleteAccount}
               >
-                <Text style={styles.menuText}>Editar Perfil</Text>
+                <Text style={[styles.menuText, styles.deleteAccountText]}>Eliminar Cuenta</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.menuItem}
@@ -178,7 +270,11 @@ const ProfileScreen = ({ navigation }) => {
         )}
       </View>
 
-      <ScrollView style={styles.mainContent}>
+      <ScrollView 
+        style={styles.mainContent}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         <Text style={styles.sectionTitle}>Jugadores Registrados</Text>
         {players.length > 0 ? (
           players.map((player, index) => (
@@ -205,7 +301,13 @@ const ProfileScreen = ({ navigation }) => {
                   style={[styles.actionButton, styles.equipmentButton]}
                   onPress={() => navigation.navigate('Equipamiento', { jugadorId: player.id })}
                 >
-                  <Text style={styles.buttonText}>Equipamiento</Text>
+                  <Text style={styles.buttonText}>Equipo</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.deleteButton]}
+                  onPress={() => handleDeletePlayer(player.id)}
+                >
+                  <Text style={styles.buttonText}>Eliminar</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -230,21 +332,21 @@ const ProfileScreen = ({ navigation }) => {
                 </View>
               </View>
               <View style={styles.cardButtons}>
-              <TouchableOpacity
-                style={[styles.actionButton, styles.pagosButton]}
-                onPress={() => navigation.navigate('Pagos', { 
-                  jugadorId: cheerleader.id,
-                  esPorrista: true 
-                })}
-              >
-                <Text style={styles.buttonText}>Ver Pagos</Text>
-              </TouchableOpacity>
-                {/*<TouchableOpacity
-                  style={[styles.actionButton, styles.equipmentButton]}
-                  onPress={() => navigation.navigate('Equipamiento', { jugadorId: cheerleader.id })}
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.pagosButton]}
+                  onPress={() => navigation.navigate('Pagos', { 
+                    jugadorId: cheerleader.id,
+                    esPorrista: true 
+                  })}
                 >
-                  <Text style={styles.buttonText}>Ver Equipamiento</Text>
-                </TouchableOpacity>*/}
+                  <Text style={styles.buttonText}>Pagos</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.deleteButton]}
+                  onPress={() => handleDeletePlayer(cheerleader.id, true)}
+                >
+                  <Text style={styles.buttonText}>Eliminar</Text>
+                </TouchableOpacity>
               </View>
             </View>
           ))
@@ -326,11 +428,24 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#333',
   },
+  deleteAccountItem: {
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    marginTop: 5,
+    paddingTop: 10,
+  },
+  deleteAccountText: {
+    color: '#ff4444',
+    fontWeight: 'bold',
+  },
   mainContent: {
     flex: 1,
     zIndex: 1,
     paddingLeft: 10,
     paddingRight: 10,
+  },
+  scrollContent: {
+    paddingBottom: 100,
   },
   sectionTitle: {
     fontSize: 18,
@@ -377,9 +492,9 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 5,
-    numberOfLines: 2, // Limita a 2 líneas
+    numberOfLines: 2,
     ellipsizeMode: 'tail',
-    width:'60%',
+    width: '60%',
   },
   cardDetail: {
     fontSize: 12,
@@ -389,14 +504,14 @@ const styles = StyleSheet.create({
   cardButtons: {
     marginLeft: 10,
     alignItems: 'flex-end',
-    width: '25%',
+    width: '30%',
   },
   actionButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
     borderRadius: 5,
-    marginBottom: 8,
-    minWidth: 120,
+    marginBottom: 6,
+    minWidth: 100,
     width: '100%',
     alignItems: 'center',
   },
@@ -406,10 +521,13 @@ const styles = StyleSheet.create({
   equipmentButton: {
     backgroundColor: '#2c3e50',
   },
+  deleteButton: {
+    backgroundColor: '#ff4444',
+  },
   buttonText: {
     color: '#fff',
     fontWeight: 'bold',
-    fontSize: 12,
+    fontSize: 11,
   },
   noDataText: {
     textAlign: 'center',

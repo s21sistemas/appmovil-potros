@@ -10,9 +10,10 @@ import {
   Dimensions,
   SafeAreaView,
   Platform,
+  Alert, Image
 } from "react-native";
 import { Calendar } from "react-native-calendars";
-import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { collection, query, where, onSnapshot, doc, getDoc } from "firebase/firestore";
 import { db } from "../firebaseConfig";
 import { Ionicons } from "@expo/vector-icons";
 import * as FileSystem from 'expo-file-system';
@@ -30,18 +31,21 @@ const PagosScreen = ({ route, navigation }) => {
   const [esPorrista, setEsPorrista] = useState(false);
   const [alCorriente, setAlCorriente] = useState(false);
 
-  // Función mejorada para formatear fechas de Firestore
+  // Función para formatear fechas
   const formatFirestoreDate = (timestamp) => {
     if (!timestamp) return null;
     
-    // Si ya es un string en formato aaaa/mm/dd
-    if (typeof timestamp === 'string' && timestamp.match(/^\d{4}\/\d{2}\/\d{2}$/)) {
-      return timestamp.replace(/\//g, '-'); // Convertir a aaaa-mm-dd para el calendario
-    }
-    
-    // Si es un string en otro formato (por si acaso)
     if (typeof timestamp === 'string') {
-      return timestamp.split('T')[0]; // Tomar solo la parte de la fecha
+      // Si ya está en formato aaaa-mm-dd
+      if (timestamp.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        return timestamp;
+      }
+      // Si está en formato aaaa/mm/dd
+      if (timestamp.match(/^\d{4}\/\d{2}\/\d{2}$/)) {
+        return timestamp.replace(/\//g, '-');
+      }
+      // Si es un string ISO
+      return timestamp.split('T')[0];
     }
     
     // Si es un timestamp de Firestore
@@ -62,6 +66,95 @@ const PagosScreen = ({ route, navigation }) => {
     }
   }, [route.params]);
 
+  // Obtener datos del jugador/porrista
+  const fetchPlayerData = async (id) => {
+    try {
+      const playerCollection = esPorrista ? 'porristas' : 'jugadores';
+      const playerDoc = await getDoc(doc(db, playerCollection, id));
+      return playerDoc.exists() ? playerDoc.data() : null;
+    } catch (error) {
+      console.error("Error fetching player data:", error);
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    if (!jugadorId) return;
+
+    const collectionName = esPorrista ? "pagos_porristas" : "pagos_jugadores";
+    const q = query(
+      collection(db, collectionName), 
+      where(esPorrista ? "porristaId" : "jugadorId", "==", jugadorId)
+    );
+
+    const unsubscribe = onSnapshot(q, async (querySnapshot) => {
+      try {
+        if (!querySnapshot.empty) {
+          const docData = querySnapshot.docs[0].data();
+          const playerData = await fetchPlayerData(jugadorId);
+          
+          // Procesar pagos según la estructura definida
+          const pagosFormateados = docData.pagos.map((pago) => ({
+            estatus: pago.estatus || "pendiente",
+            fecha_limite: formatFirestoreDate(pago.fecha_limite)?.replace(/-/g, '/'),
+            fecha_pago: pago.estatus === "pagado" ? formatFirestoreDate(pago.fecha_pago)?.replace(/-/g, '/') : null,
+            monto: pago.monto || 0,
+            tipo: pago.tipo || "Pago",
+            ...(pago.abono === "SI" && {
+              abono: pago.abono,
+              abonos: pago.abonos || [],
+              total_abonado: pago.total_abonado || 0
+            }),
+            ...(pago.beca && { beca: pago.beca }),
+            ...(pago.descuento && { descuento: pago.descuento }),
+            ...(pago.prorroga && { prorroga: pago.prorroga })
+          }));
+
+          // Calcular montos según la estructura de pagos
+          const montoTotalPagado = pagosFormateados
+            .filter(pago => pago.estatus === "pagado")
+            .reduce((sum, pago) => sum + (pago.monto - (pago.descuento || 0)), 0);
+
+          const montoTotalPendiente = pagosFormateados
+            .filter(pago => pago.estatus === "pendiente")
+            .reduce((sum, pago) => sum + (pago.monto - (pago.descuento || 0)), 0);
+
+          const transformedData = {
+            id: querySnapshot.docs[0].id,
+            [esPorrista ? "porristaId" : "jugadorId"]: jugadorId,
+            monto_total: docData.monto_total || (esPorrista ? 1000 : 1500),
+            monto_total_pagado: montoTotalPagado,
+            monto_total_pendiente: montoTotalPendiente,
+            nombre_jugador: playerData?.nombre ? 
+              `${playerData.nombre} ${playerData.apellido_p} ${playerData.apellido_m}` : 
+              (esPorrista ? "Porrista" : "Jugador"),
+            categoria: playerData?.categoria || "N/A",
+            numero: playerData?.numero_mfl || "N/A",
+            pagos: pagosFormateados,
+            fecha_registro: formatFirestoreDate(docData.fecha_registro)?.replace(/-/g, '/')
+          };
+          
+          setPagoData(transformedData);
+          setAlCorriente(montoTotalPendiente === 0);
+        } else {
+          setError(`No se encontraron datos de pagos para este ${esPorrista ? "porrista" : "jugador"}.`);
+        }
+      } catch (error) {
+        console.error("Error al procesar los pagos:", error);
+        setError("Error al cargar los pagos. Inténtalo de nuevo.");
+      } finally {
+        setLoading(false);
+      }
+    }, (error) => {
+      console.error("Error en la suscripción:", error);
+      setError("Error en la conexión con la base de datos.");
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [jugadorId, esPorrista]);
+
+  // Generar fechas marcadas para el calendario
   const getMarkedDates = () => {
     if (!pagoData) return {};
     
@@ -69,12 +162,7 @@ const PagosScreen = ({ route, navigation }) => {
     pagoData.pagos.forEach((pago) => {
       const fechaFormateada = formatFirestoreDate(pago.fecha_limite);
       if (fechaFormateada) {
-        // Asegurarnos de que la fecha esté en formato aaaa-mm-dd
-        const formattedDate = fechaFormateada.includes('/') 
-          ? fechaFormateada.replace(/\//g, '-')
-          : fechaFormateada;
-        
-        marked[formattedDate] = {
+        marked[fechaFormateada] = {
           marked: true,
           dotColor: pago.estatus === "pendiente" ? "#FF5252" : "#4CAF50",
           selected: true,
@@ -104,252 +192,250 @@ const PagosScreen = ({ route, navigation }) => {
     return marked;
   };
 
-  useEffect(() => {
-    if (!jugadorId) return;
-
-    const collectionName = esPorrista ? "pagos_porristas" : "pagos_jugadores";
-    const q = query(
-      collection(db, collectionName), 
-      where("jugadorId", "==", jugadorId)
-    );
-
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      try {
-        if (!querySnapshot.empty) {
-          const docData = querySnapshot.docs[0].data();
-          
-          const pagosFormateados = docData.pagos.map((pago) => ({
-            estatus: pago.estatus || "pendiente",
-            // Mantenemos el formato original para mostrar al usuario
-            fecha_limite: typeof pago.fecha_limite === 'string' 
-              ? pago.fecha_limite 
-              : formatFirestoreDate(pago.fecha_limite)?.replace(/-/g, '/'),
-            fecha_pago: typeof pago.fecha_pago === 'string' 
-              ? pago.fecha_pago 
-              : formatFirestoreDate(pago.fecha_pago)?.replace(/-/g, '/'),
-            monto: pago.monto || 0,
-            tipo: pago.tipo || "Pago",
-            beca: pago.beca || 0,
-            descuento: pago.descuento || 0,
-            prorroga: pago.prorroga || false,
-          }));
-
-          // Calcular montos
-          const montoTotalPagado = pagosFormateados
-            .filter(pago => pago.estatus === "pagado")
-            .reduce((sum, pago) => sum + pago.monto, 0);
-
-          const montoTotalPendiente = pagosFormateados
-            .filter(pago => pago.estatus === "pendiente")
-            .reduce((sum, pago) => sum + pago.monto, 0);
-
-          const transformedData = {
-            jugador_id: jugadorId,
-            monto_total: 2000, // Fijo en $2000 como solicitaste
-            monto_total_pagado: montoTotalPagado,
-            monto_total_pendiente: montoTotalPendiente,
-            nombre_jugador: docData.nombre || (esPorrista ? "Porrista" : "Jugador"),
-            pagos: pagosFormateados,
-          };
-          
-          setPagoData(transformedData);
-          setAlCorriente(montoTotalPendiente === 0);
-        } else {
-          setError(`No se encontraron datos de pagos para este ${esPorrista ? "porrista" : "jugador"}.`);
-        }
-      } catch (error) {
-        console.error("Error al obtener los pagos:", error);
-        setError("Error al cargar los pagos. Inténtalo de nuevo.");
-      } finally {
-        setLoading(false);
-      }
-    }, (error) => {
-      console.error("Error en la suscripción:", error);
-      setError("Error en la conexión con la base de datos.");
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [jugadorId, esPorrista]);
-
-  const handleDownload = (url) => {
-    Linking.openURL(url).catch((err) =>
-      console.error("No se pudo abrir el enlace", err)
-    );
-  };
-
-  
+  // Generar PDF con los detalles del pago
   const generatePDF = async (pago) => {
+    let logoBase64 = '';
     try {
-      // Crear el HTML para el PDF
+      // Convertir la imagen a base64 (solo para móvil)
+      if (Platform.OS !== 'web') {
+        try {
+          const image = require('../assets/logoPotros.jpg');
+          const response = await fetch(Image.resolveAssetSource(image).uri);
+          const blob = await response.blob();
+          const reader = new FileReader();
+          
+          logoBase64 = await new Promise((resolve, reject) => {
+            reader.onloadend = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+        } catch (imageError) {
+          console.warn('No se pudo cargar la imagen del logo:', imageError);
+        }
+      } else {
+        // Para web (usa la ruta pública)
+        logoBase64 = '/logoPotros.jpg';
+      }
+  
+      // Obtener la fecha actual formateada
+      const today = new Date();
+      const formattedDate = today.toLocaleDateString('es-MX', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      });
+  
+      // Crear el HTML para el PDF con el nuevo formato
       const html = `
       <html>
         <head>
           <meta charset="UTF-8">
           <style>
             body { 
-              font-family: 'Arial', sans-serif; 
-              padding: 30px;
-              color: #333;
-              line-height: 1.5;
+              font-family: Arial, sans-serif; 
+              padding: 0;
+              margin: 0;
+              color: #000;
+              font-size: 14px;
             }
-            .header { 
-              text-align: center; 
-              margin-bottom: 25px;
-              border-bottom: 2px solid #eaeaea;
-              padding-bottom: 20px;
+            .container {
+              width: 100%;
+              max-width: 600px;
+              margin: 0 auto;
+              padding: 15px;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 20px;
+              border-bottom: 1px solid #000;
+              padding-bottom: 10px;
+              position: relative;
             }
             .logo {
-              height: 80px;
-              margin-bottom: 15px;
+              position: absolute;
+              left: 0;
+              top: 0;
+              width: 80px;
+              height: auto;
             }
-            .title { 
-              font-size: 22px; 
+            .header-content {
+              margin-left: ${logoBase64 ? '90px' : '0'};
+            }
+            .club-name {
+              font-size: 18px;
               font-weight: bold;
-              color: #2c3e50;
-              margin: 10px 0 5px 0;
-            }
-            .subtitle {
-              font-size: 16px;
-              color: #7f8c8d;
               margin-bottom: 5px;
             }
-            .address {
+            .club-subtitle {
               font-size: 14px;
-              color: #7f8c8d;
+              margin-bottom: 10px;
+            }
+            .club-address {
+              font-size: 12px;
+              margin-bottom: 5px;
+            }
+            .club-phone {
+              font-size: 12px;
+              margin-bottom: 10px;
+            }
+            .separator {
+              border-top: 1px dashed #000;
+              margin: 15px 0;
+            }
+            .receipt-title {
+              font-size: 16px;
+              font-weight: bold;
+              text-align: center;
+              margin: 15px 0;
+            }
+            .receipt-line {
+              display: flex;
+              margin-bottom: 10px;
+            }
+            .receipt-label {
+              width: 120px;
+              font-weight: bold;
+            }
+            .receipt-value {
+              flex: 1;
+              border-bottom: 1px solid #000;
+              padding-left: 10px;
+            }
+            .payment-method {
+              display: flex;
               margin-top: 15px;
             }
-            .section {
-              margin-bottom: 25px;
-              background: #f9f9f9;
-              padding: 15px 20px;
-              border-radius: 5px;
-              border-left: 4px solid #3498db;
-            }
-            .section h3 {
-              margin-top: 0;
-              color: #2c3e50;
-              border-bottom: 1px solid #eee;
-              padding-bottom: 8px;
-            }
-            .info-row {
+            .payment-option {
+              margin-right: 20px;
               display: flex;
-              margin-bottom: 8px;
+              align-items: center;
             }
-            .info-label {
-              font-weight: bold;
-              width: 150px;
-              color: #34495e;
-            }
-            .info-value {
-              flex: 1;
-            }
-            .status-paid {
-              color: #27ae60;
-              font-weight: bold;
-            }
-            .status-pending {
-              color: #e67e22;
-              font-weight: bold;
+            .signature-line {
+              margin-top: 40px;
+              text-align: center;
+              border-top: 1px solid #000;
+              width: 200px;
+              margin-left: auto;
+              margin-right: auto;
+              padding-top: 5px;
             }
             .footer {
               text-align: center;
               margin-top: 30px;
-              font-size: 12px;
-              color: #95a5a6;
-              border-top: 1px solid #eee;
-              padding-top: 15px;
+              font-size: 10px;
             }
           </style>
         </head>
         <body>
-          <div class="header">
-            <img src="./assets/LogoPotros.jpg" 
-                 class="logo" 
-                 alt="Logo Club Potros" />
-            <div class="title">COMPROBANTE DE PAGO</div>
-            <div class="subtitle">${esPorrista ? 'Porrista' : 'Jugador'}</div>
-            <div class="address"></div>
-          </div>
-          
-          <div class="section">
-            <h3>Información del ${esPorrista ? 'Porrista' : 'Jugador'}</h3>
-            <div class="info-row">
-              <div class="info-label">Nombre:</div>
-              <div class="info-value">${pagoData.nombre_jugador}</div>
-            </div>
-            ${pagoData.numero ? `
-            <div class="info-row">
-              <div class="info-label">Número:</div>
-              <div class="info-value">${pagoData.numero}</div>
-            </div>` : ''}
-          </div>
-          
-          <div class="section">
-            <h3>Detalles del Pago</h3>
-            <div class="info-row">
-              <div class="info-label">Concepto:</div>
-              <div class="info-value">${pago.tipo}</div>
-            </div>
-            <div class="info-row">
-              <div class="info-label">Monto:</div>
-              <div class="info-value">$${pago.monto}</div>
-            </div>
-            <div class="info-row">
-              <div class="info-label">Fecha límite:</div>
-              <div class="info-value">${pago.fecha_limite}</div>
-            </div>
-            ${pago.fecha_pago ? `
-            <div class="info-row">
-              <div class="info-label">Fecha de pago:</div>
-              <div class="info-value">${pago.fecha_pago}</div>
-            </div>` : ''}
-            <div class="info-row">
-              <div class="info-label">Estado:</div>
-              <div class="info-value ${pago.estatus === 'pagado' ? 'status-paid' : 'status-pending'}">
-                ${pago.estatus === 'pagado' ? 'PAGADO' : 'PENDIENTE'}
+          <div class="container">
+            <div class="header">
+              ${logoBase64 ? `<img src="${logoBase64}" class="logo" alt="Logo Club Potros" />` : ''}
+              <div class="header-content">
+                <div class="club-name">CLUB POTROS DE LA ANÁHUAC</div>
+                <div class="club-subtitle">FRATERNIDAD LEGÍTIMOS POTROS, A.C.</div>
+                <div class="club-address">Porfirio Barba Jacob No. 901, Col. Anáhuac, San Nicolás de los Garza, N.L.</div>
+                <div class="club-phone">Tels. 81-8376-1777 / 81-2236-0535</div>
               </div>
             </div>
-          </div>
-          
-          <div class="footer">
-            Documento generado el ${new Date().toLocaleDateString()} - Club Potros © ${new Date().getFullYear()}
+  
+            <div class="separator"></div>
+  
+            <div class="receipt-title">RECIBO</div>
+  
+            <div class="receipt-line">
+              <div class="receipt-label">Recibí:</div>
+              <div class="receipt-value">${pagoData.nombre_jugador}</div>
+            </div>
+  
+            <div class="receipt-line">
+              <div class="receipt-label">La cantidad de $</div>
+              <div class="receipt-value">${pago.monto}</div>
+            </div>
+  
+            <div class="receipt-line">
+              <div class="receipt-label">Por concepto de</div>
+              <div class="receipt-value">${pago.tipo}</div>
+            </div>
+  
+            <div class="receipt-line">
+              <div class="receipt-value" style="margin-left: 120px;"></div>
+            </div>
+  
+            <div class="receipt-line">
+              <div class="receipt-label">${esPorrista ? 'Porrista' : 'Jugador'}</div>
+              <div class="receipt-value">${pagoData.nombre_jugador}</div>
+            </div>
+  
+            ${!esPorrista ? `
+            <div class="receipt-line">
+              <div class="receipt-label">Categoria</div>
+              <div class="receipt-value">${pagoData.categoria}</div>
+            </div>
+            ` : ''}
+  
+            <div class="payment-method">
+              <div class="payment-option">
+                <div class="receipt-label">Novato</div>
+              </div>
+              <div class="payment-option">
+                <div class="receipt-label">Veterano</div>
+              </div>
+              <div class="payment-option">
+                <div class="receipt-label">Efectivo</div>
+              </div>
+              <div class="payment-option">
+                <div class="receipt-label">Cheque No.</div>
+                <div class="receipt-value" style="width: 50px; margin-left: 5px;"></div>
+              </div>
+            </div>
+  
+            <div class="receipt-line">
+              <div class="receipt-label">Fecha</div>
+              <div class="receipt-value">${formattedDate}</div>
+            </div>
+  
+            <div class="separator"></div>
+  
+            <div class="receipt-line" style="margin-top: 20px;">
+              <div class="receipt-label">Recibí:</div>
+              <div class="receipt-value"></div>
+            </div>
+  
+            <div class="footer">
+              Documento generado el ${formattedDate} - Club Potros © ${today.getFullYear()}
+            </div>
           </div>
         </body>
       </html>
       `;
   
       if (Platform.OS === 'web') {
-        // Solución para WEB
         const printWindow = window.open('', '_blank');
-        printWindow.document.write(html);
+        printWindow.document.write(html.replace('../assets/LogoPotros.jpg', '/assets/LogoPotros.jpg'));
         printWindow.document.close();
         printWindow.print();
       } else {
-        // Solución para MÓVIL (Android/iOS)
         const { uri } = await Print.printToFileAsync({
           html,
-          width: 612,   // Ancho carta en puntos (8.5 pulgadas)
-          height: 792,  // Alto carta en puntos (11 pulgadas)
+          width: 612,  // Tamaño carta en puntos (8.5 x 11 pulgadas)
+          height: 792,
         });
   
         if (await Sharing.isAvailableAsync()) {
           await Sharing.shareAsync(uri, {
             mimeType: 'application/pdf',
-            dialogTitle: 'Compartir comprobante',
+            dialogTitle: 'Compartir recibo',
             UTI: 'com.adobe.pdf'
           });
         } else {
-          // Alternativa si Sharing no está disponible
-          alert(`PDF generado en: ${uri}`);
+          Alert.alert('PDF generado', `Archivo guardado en: ${uri}`);
         }
       }
     } catch (error) {
       console.error('Error al generar el PDF:', error);
-      alert('Error al generar el recibo. Por favor, inténtalo de nuevo.');
+      Alert.alert('Error', 'No se pudo generar el recibo');
     }
   };
-
 
   if (loading) {
     return (
@@ -387,493 +473,222 @@ const PagosScreen = ({ route, navigation }) => {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      {Platform.OS === "web" ? (
-        <div style={styles.webOuterContainer}>
-          <div style={styles.webInnerContainer}>
-            <ScrollView
-              style={styles.scrollView}
-              contentContainerStyle={styles.scrollContent}
-            >
-              <View style={styles.header}>
-                <Text style={styles.headerTitle}>
-                  Pagos de {pagoData?.nombre_jugador || (esPorrista ? "Porrista" : "Jugador")}
-                </Text>
-              </View>
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+        <View style={styles.header}>
+        </View>
 
-              <View style={styles.calendarWrapper}>
-              <Calendar
-                style={styles.calendar}
-                markedDates={getMarkedDates()}
-                markingType={'custom'}
-                theme={{
-                  calendarBackground: "#fff",
-                  selectedDayBackgroundColor: "#FFD700",
-                  selectedDayTextColor: "#000",
-                  todayTextColor: "#2196F3",
-                  dayTextColor: "#2d4150",
-                  textDisabledColor: "#d9e1e8",
-                  textSectionTitleColor: "#333",
-                  monthTextColor: "#333",
-                  arrowColor: "#333",
-                  "stylesheet.calendar.header": {
-                    header: {
-                      height: 50,
-                      flexDirection: "row",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      paddingHorizontal: 10,
-                      backgroundColor: "#f5f5f5",
-                      borderBottomWidth: 1,
-                      borderBottomColor: "#e0e0e0",
-                    },
-                    monthText: {
-                      fontSize: 18,
-                      fontWeight: "bold",
-                      color: "#333",
-                    },
-                    arrow: {
-                      padding: 12,
-                    },
-                    week: {
-                      marginTop: 10,
-                      flexDirection: "row",
-                      justifyContent: "space-around",
-                      backgroundColor: "#f5f5f5",
-                      paddingVertical: 8,
-                    },
-                  },
-                  "stylesheet.day.basic": {
-                    base: {
-                      width: 36,
-                      height: 36,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      borderRadius: 18,
-                    },
-                    text: {
-                      fontSize: 16,
-                      fontWeight: "500",
-                      color: "#2d4150",
-                    },
-                  },
-                  "stylesheet.calendar.main": {
-                    container: {
-                      padding: 0,
-                    },
-                  },
-                }}
-                dayComponent={({date, state, marking}) => {
-                  const isMarked = marking?.marked;
-                  const isSelected = marking?.selected;
-                  const isToday = date.dateString === new Date().toISOString().split('T')[0];
-                  const isPending = marking?.dotColor === "#FF5252";
-                  
-                  return (
-                    <TouchableOpacity
-                      style={[
-                        styles.calendarDay,
-                        isSelected && styles.calendarDaySelected,
-                        state === 'disabled' && styles.calendarDayDisabled,
-                        isToday && !isSelected && styles.calendarDayToday,
-                        isPending && !isSelected && styles.calendarDayPending,
-                      ]}
-                      disabled={state === 'disabled'}
-                      onPress={() => {
-                        if (isMarked) {
-                          const pago = pagoData.pagos.find(p => {
-                            const pagoDate = formatFirestoreDate(p.fecha_limite);
-                            return pagoDate === date.dateString || 
-                                   pagoDate?.replace(/\//g, '-') === date.dateString;
-                          });
-                          if (pago) {
-                            alert(`Pago ${pago.estatus}\nTipo: ${pago.tipo}\nMonto: $${pago.monto}\nFecha: ${pago.fecha_limite}`);
-                          }
-                        }
-                      }}
-                    >
-                      <Text style={[
-                        styles.calendarDayText,
-                        isSelected && styles.calendarDayTextSelected,
-                        state === 'disabled' && styles.calendarDayTextDisabled,
-                        isToday && !isSelected && styles.calendarDayTextToday,
-                        isPending && !isSelected && styles.calendarDayTextPending,
-                      ]}>
-                        {date.day}
-                      </Text>
-                      {isMarked && (
-                        <View style={[
-                          styles.calendarDot,
-                          isSelected && styles.calendarDotSelected,
-                          isPending && styles.calendarDotPending,
-                        ]}/>
-                      )}
-                    </TouchableOpacity>
-                  );
-                }}
-                hideExtraDays={false}
-              />
-              </View>
-
-              <View style={styles.summaryCard}>
-                <Text style={styles.summaryTitle}>Resumen de Pagos</Text>
-                
-                {alCorriente && (
-                  <View style={styles.alCorrienteContainer}>
-                    <Text style={styles.alCorrienteText}>¡Estás al corriente con tus pagos!</Text>
-                  </View>
-                )}
-                
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>{esPorrista ? "Porrista:" : "Jugador:"}</Text>
-                  <Text style={styles.summaryValue}>
-                    {pagoData?.nombre_jugador || "N/A"}
-                  </Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Total:</Text>
-                  <Text style={styles.summaryValue}>
-                    ${pagoData?.monto_total || 0}
-                  </Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Pagado:</Text>
-                  <Text style={[styles.summaryValue, styles.paidAmount]}>
-                    ${pagoData?.monto_total_pagado || 0}
-                  </Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Pendiente:</Text>
-                  <Text style={[styles.summaryValue, styles.pendingAmount]}>
-                    ${pagoData?.monto_total_pendiente || 0}
-                  </Text>
-                </View>
-              </View>
-
-              <Text style={styles.sectionTitle}>Detalle de Pagos</Text>
-
-              {pagoData?.pagos?.map((pago, index) => (
-                <View
-                  key={index}
+        <View style={styles.calendarWrapper}>
+          <Calendar
+            style={styles.calendar}
+            markedDates={getMarkedDates()}
+            markingType={'custom'}
+            theme={{
+              calendarBackground: "#fff",
+              selectedDayBackgroundColor: "#FFD700",
+              selectedDayTextColor: "#000",
+              todayTextColor: "#2196F3",
+              dayTextColor: "#2d4150",
+              textDisabledColor: "#d9e1e8",
+              textSectionTitleColor: "#333",
+              monthTextColor: "#333",
+              arrowColor: "#333",
+            }}
+            dayComponent={({date, state, marking}) => {
+              const isMarked = marking?.marked;
+              const isSelected = marking?.selected;
+              const isToday = date.dateString === new Date().toISOString().split('T')[0];
+              const isPending = marking?.dotColor === "#FF5252";
+              
+              return (
+                <TouchableOpacity
                   style={[
-                    styles.paymentCard,
-                    pago.estatus === "pendiente"
-                      ? styles.pendingCard
-                      : styles.paidCard,
+                    styles.calendarDay,
+                    isSelected && styles.calendarDaySelected,
+                    state === 'disabled' && styles.calendarDayDisabled,
+                    isToday && !isSelected && styles.calendarDayToday,
+                    isPending && !isSelected && styles.calendarDayPending,
                   ]}
+                  disabled={state === 'disabled'}
+                  onPress={() => {
+                    if (isMarked) {
+                      const pago = pagoData.pagos.find(p => {
+                        const pagoDate = formatFirestoreDate(p.fecha_limite);
+                        return pagoDate === date.dateString;
+                      });
+                      if (pago) {
+                        Alert.alert(
+                          `Detalle de pago - ${pago.tipo}`,
+                          `Estado: ${pago.estatus}\n` +
+                          `Monto: $${pago.monto}\n` +
+                          `Fecha límite: ${pago.fecha_limite}\n` +
+                          (pago.fecha_pago ? `Fecha pago: ${pago.fecha_pago}\n` : '') +
+                          (pago.beca ? `Beca: ${pago.beca}%\n` : '') +
+                          (pago.descuento ? `Descuento: $${pago.descuento}\n` : '')
+                        );
+                      }
+                    }
+                  }}
                 >
-                  <View style={styles.paymentHeader}>
-                    <Text style={styles.paymentType}>{pago.tipo}</Text>
-                    <Text
-                      style={[
-                        styles.paymentStatus,
-                        pago.estatus === "pendiente"
-                          ? styles.pendingText
-                          : styles.paidText,
-                      ]}
-                    >
-                      {pago.estatus}
-                    </Text>
-                  </View>
-
-                  <Text style={styles.paymentAmount}>${pago.monto}</Text>
-
-                  {pago.fecha_limite && (
-                    <View style={styles.detailRow}>
-                      <Text style={styles.detailLabel}>Fecha límite:</Text>
-                      <Text style={styles.detailValue}>{pago.fecha_limite}</Text>
-                    </View>
+                  <Text style={[
+                    styles.calendarDayText,
+                    isSelected && styles.calendarDayTextSelected,
+                    state === 'disabled' && styles.calendarDayTextDisabled,
+                    isToday && !isSelected && styles.calendarDayTextToday,
+                    isPending && !isSelected && styles.calendarDayTextPending,
+                  ]}>
+                    {date.day}
+                  </Text>
+                  {isMarked && (
+                    <View style={[
+                      styles.calendarDot,
+                      isSelected && styles.calendarDotSelected,
+                      isPending && styles.calendarDotPending,
+                    ]}/>
                   )}
+                </TouchableOpacity>
+              );
+            }}
+          />
+        </View>
 
-                  {pago.fecha_pago && pago.estatus === "pagado" && (
-                    <View style={styles.detailRow}>
-                      <Text style={styles.detailLabel}>Fecha de pago:</Text>
-                      <Text style={styles.detailValue}>{pago.fecha_pago}</Text>
-                    </View>
-                  )}
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryTitle}>Resumen de Pagos</Text>
+          
+          {alCorriente && (
+            <View style={styles.alCorrienteContainer}>
+              <Text style={styles.alCorrienteText}>¡Estás al corriente con tus pagos!</Text>
+            </View>
+          )}
+          
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>{esPorrista ? "Porrista:" : "Jugador:"}</Text>
+            <Text style={styles.summaryValue}>{pagoData.nombre_jugador}</Text>
+          </View>
+          {!esPorrista && (
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Categoría:</Text>
+              <Text style={styles.summaryValue}>{pagoData.categoria}</Text>
+            </View>
+          )}
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Número:</Text>
+            <Text style={styles.summaryValue}>{pagoData.numero}</Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Total:</Text>
+            <Text style={styles.summaryValue}>${pagoData.monto_total}</Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Pagado:</Text>
+            <Text style={[styles.summaryValue, styles.paidAmount]}>
+              ${pagoData.monto_total_pagado}
+            </Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Pendiente:</Text>
+            <Text style={[styles.summaryValue, styles.pendingAmount]}>
+              ${pagoData.monto_total_pendiente}
+            </Text>
+          </View>
+        </View>
 
-                  <TouchableOpacity
-                    style={styles.downloadButton}
-                    onPress={() => generatePDF(pago)}
-                  >
-                    <Text style={styles.downloadButtonText}>Descargar recibo</Text>
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </ScrollView>
-          </div>
-        </div>
-      ) : (
-        <View style={styles.mobileContainer}>
-          <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}
+        <Text style={styles.sectionTitle}>Detalle de Pagos</Text>
+
+        {pagoData.pagos.map((pago, index) => (
+          <View
+            key={index}
+            style={[
+              styles.paymentCard,
+              pago.estatus === "pendiente" ? styles.pendingCard : styles.paidCard
+            ]}
           >
-            <View style={styles.header}>
-              <TouchableOpacity
-                onPress={() => navigation.goBack()}
-                style={styles.backButton}
-              >
-                <Ionicons name="arrow-back" size={24} color="#000" />
-              </TouchableOpacity>
-              <Text style={styles.headerTitle}>
-                Pagos de {pagoData?.nombre_jugador || (esPorrista ? "Porrista" : "Jugador")}
+            <View style={styles.paymentHeader}>
+              <Text style={styles.paymentType}>{pago.tipo}</Text>
+              <Text style={[
+                styles.paymentStatus,
+                pago.estatus === "pendiente" ? styles.pendingText : styles.paidText
+              ]}>
+                {pago.estatus.toUpperCase()}
               </Text>
             </View>
 
-            <View style={styles.calendarWrapper}>
-              <Calendar
-                style={styles.calendar}
-                markedDates={getMarkedDates()}
-                markingType={"period"}
-                theme={{
-                  calendarBackground: "#fff",
-                  selectedDayBackgroundColor: "#FFD700",
-                  selectedDayTextColor: "#000",
-                  todayTextColor: "#00adf5",
-                  dayTextColor: "#2d4150",
-                  textDisabledColor: "#d9e1e8",
-                  textSectionTitleColor: "#333",
-                  monthTextColor: "#333",
-                  arrowColor: "#333",
-                  "stylesheet.calendar.header": {
-                    header: {
-                      height: 40,
-                      flexDirection: "row",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      paddingHorizontal: 10,
-                    },
-                    monthText: {
-                      fontSize: 16,
-                      fontWeight: "bold",
-                    },
-                    arrow: {
-                      padding: 10,
-                    },
-                    week: {
-                      marginTop: 7,
-                      flexDirection: "row",
-                      justifyContent: "space-around",
-                    },
-                  },
-                  "stylesheet.day.basic": {
-                    base: {
-                      width: 32,
-                      height: 32,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      borderRadius: 16,
-                    },
-                    text: {
-                      fontSize: 14,
-                      fontWeight: "400",
-                      color: "#2d4150",
-                    },
-                  },
-                }}
-                dayComponent={({date, state, marking}) => {
-                  const isMarked = marking?.marked;
-                  const isSelected = marking?.selected;
-                  const isToday = date.dateString === new Date().toISOString().split('T')[0];
-                  const isPending = marking?.dotColor === "#FF5252";
-                  
-                  return (
-                    <TouchableOpacity
-                      style={[
-                        styles.calendarDay,
-                        isSelected && styles.calendarDaySelected,
-                        state === 'disabled' && styles.calendarDayDisabled,
-                        isToday && !isSelected && styles.calendarDayToday,
-                        isPending && !isSelected && styles.calendarDayPending,
-                      ]}
-                      disabled={state === 'disabled'}
-                      onPress={() => {
-                        if (isMarked) {
-                          const pago = pagoData.pagos.find(p => {
-                            const pagoDate = formatFirestoreDate(p.fecha_limite);
-                            return pagoDate === date.dateString || 
-                                   pagoDate?.replace(/\//g, '-') === date.dateString;
-                          });
-                          if (pago) {
-                            alert(`Pago ${pago.estatus}\nTipo: ${pago.tipo}\nMonto: $${pago.monto}\nFecha: ${pago.fecha_limite}`);
-                          }
-                        }
-                      }}
-                    >
-                      <Text style={[
-                        styles.calendarDayText,
-                        isSelected && styles.calendarDayTextSelected,
-                        state === 'disabled' && styles.calendarDayTextDisabled,
-                        isToday && !isSelected && styles.calendarDayTextToday,
-                        isPending && !isSelected && styles.calendarDayTextPending,
-                      ]}>
-                        {date.day}
-                      </Text>
-                      {isMarked && (
-                        <View style={[
-                          styles.calendarDot,
-                          isSelected && styles.calendarDotSelected,
-                          isPending && styles.calendarDotPending,
-                        ]}/>
-                      )}
-                    </TouchableOpacity>
-                  );
-                }}
-                hideExtraDays={true}
-              />
-            </View>
+            <Text style={styles.paymentAmount}>${pago.monto}</Text>
 
-            <View style={styles.summaryCard}>
-              <Text style={styles.summaryTitle}>Resumen de Pagos</Text>
-              
-              {alCorriente && (
-                <View style={styles.alCorrienteContainer}>
-                  <Text style={styles.alCorrienteText}>¡Estás al corriente con tus pagos!</Text>
-                </View>
-              )}
-              
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>{esPorrista ? "Porrista:" : "Jugador:"}</Text>
-                <Text style={styles.summaryValue}>
-                  {pagoData?.nombre_jugador || "N/A"}
+            {pago.beca && (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Beca:</Text>
+                <Text style={styles.detailValue}>{pago.beca}%</Text>
+              </View>
+            )}
+
+            {pago.descuento && (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Descuento:</Text>
+                <Text style={styles.detailValue}>${pago.descuento}</Text>
+              </View>
+            )}
+
+            {pago.fecha_limite && (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Fecha límite:</Text>
+                <Text style={styles.detailValue}>{pago.fecha_limite}</Text>
+              </View>
+            )}
+
+            {pago.fecha_pago && (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Fecha pago:</Text>
+                <Text style={styles.detailValue}>{pago.fecha_pago}</Text>
+              </View>
+            )}
+
+            {pago.abono === 'SI' && (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Abonos:</Text>
+                <Text style={styles.detailValue}>
+                  ${pago.total_abonado || 0} de ${pago.monto}
                 </Text>
               </View>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Total:</Text>
-                <Text style={styles.summaryValue}>
-                  ${pagoData?.monto_total || 0}
-                </Text>
-              </View>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Pagado:</Text>
-                <Text style={[styles.summaryValue, styles.paidAmount]}>
-                  ${pagoData?.monto_total_pagado || 0}
-                </Text>
-              </View>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Pendiente:</Text>
-                <Text style={[styles.summaryValue, styles.pendingAmount]}>
-                  ${pagoData?.monto_total_pendiente || 0}
-                </Text>
-              </View>
-            </View>
+            )}
 
-            <Text style={styles.sectionTitle}>Detalle de Pagos</Text>
-
-            {pagoData?.pagos?.map((pago, index) => (
-              <View
-                key={index}
-                style={[
-                  styles.paymentCard,
-                  pago.estatus === "pendiente"
-                    ? styles.pendingCard
-                    : styles.paidCard,
-                ]}
-              >
-                <View style={styles.paymentHeader}>
-                  <Text style={styles.paymentType}>{pago.tipo}</Text>
-                  <Text
-                    style={[
-                      styles.paymentStatus,
-                      pago.estatus === "pendiente"
-                        ? styles.pendingText
-                        : styles.paidText,
-                    ]}
-                  >
-                    {pago.estatus}
-                  </Text>
-                </View>
-
-                <Text style={styles.paymentAmount}>${pago.monto}</Text>
-
-                {pago.fecha_limite && (
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Fecha límite:</Text>
-                    <Text style={styles.detailValue}>{pago.fecha_limite}</Text>
-                  </View>
-                )}
-
-                {pago.fecha_pago && pago.estatus === "pagado" && (
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Fecha de pago:</Text>
-                    <Text style={styles.detailValue}>{pago.fecha_pago}</Text>
-                  </View>
-                )}
-
-<TouchableOpacity
-                    style={styles.downloadButton}
-                    onPress={() => generatePDF(pago)}
-                  >
-                    <Text style={styles.downloadButtonText}>Descargar recibo</Text>
-                  </TouchableOpacity>
-              </View>
-            ))}
-          </ScrollView>
-        </View>
-      )}
+            <TouchableOpacity
+              style={styles.downloadButton}
+              onPress={() => generatePDF(pago)}
+            >
+              <Text style={styles.downloadButtonText}>Generar comprobante</Text>
+            </TouchableOpacity>
+          </View>
+        ))}
+      </ScrollView>
     </SafeAreaView>
   );
 };
 
-// Los estilos permanecen exactamente iguales
+// Estilos (se mantienen iguales)
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: "#f5f5f5",
   },
-  webOuterContainer: {
-    width: "100%",
-    height: "90vh",
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-    overflow: "hidden",
-  },
-  webInnerContainer: {
-    width: "100%",
-    maxWidth: 1000,
-    height: "100%",
-    overflow: "auto",
-    WebkitOverflowScrolling: "touch",
-  },
-  mobileContainer: {
+  scrollView: {
     flex: 1,
   },
-  scrollView: {
-    width: "100%",
-    height: "100%",
-  },
   scrollContent: {
-    padding: 20,
-    paddingBottom: 40,
-    minHeight: Platform.OS === "web" ? "100%" : "100%",
+    padding: 15,
+    paddingBottom: 30,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
     marginBottom: 20,
-    width: "100%",
-    ...Platform.select({
-      web: {
-        paddingTop: 20,
-      },
-    }),
   },
   backButton: {
     marginRight: 15,
-    position: "absolute",
-    left: 0,
   },
   headerTitle: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: "bold",
     color: "#333",
-    ...Platform.select({
-      web: {
-        fontSize: 24,
-      },
-    }),
   },
   loadingContainer: {
     flex: 1,
@@ -923,7 +738,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   calendarWrapper: {
-    height: 400,
+    height: 350,
     backgroundColor: "#fff",
     borderRadius: 10,
     marginBottom: 15,
@@ -933,13 +748,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 3,
-    ...Platform.select({
-      web: {
-        width: "100%",
-        maxWidth: 600,
-        alignSelf: "center",
-      },
-    }),
   },
   calendar: {
     height: "100%",
@@ -955,13 +763,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 3,
-    ...Platform.select({
-      web: {
-        width: "100%",
-        maxWidth: 600,
-        alignSelf: "center",
-      },
-    }),
   },
   summaryTitle: {
     fontSize: 16,
@@ -995,13 +796,6 @@ const styles = StyleSheet.create({
     color: "#333",
     marginBottom: 10,
     marginLeft: 5,
-    ...Platform.select({
-      web: {
-        textAlign: "center",
-        marginLeft: 0,
-        fontSize: 18,
-      },
-    }),
   },
   paymentCard: {
     backgroundColor: "#fff",
@@ -1013,13 +807,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 2,
-    ...Platform.select({
-      web: {
-        width: "100%",
-        maxWidth: 600,
-        alignSelf: "center",
-      },
-    }),
   },
   pendingCard: {
     borderLeftWidth: 4,
@@ -1075,7 +862,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   downloadButton: {
-    backgroundColor: "#ffbe00",
+    backgroundColor: "#b51f28",
     borderRadius: 5,
     padding: 8,
     alignItems: "center",

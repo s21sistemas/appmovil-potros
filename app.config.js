@@ -53,14 +53,14 @@ export default {
       ]
     },
     web: {
-      favicon: "./assets/favicon.png"
+      favicon: "./assets/potrosIcon.png"
     },
     extra: {
       eas: {
         projectId: "940bd2e2-f080-48f0-9ef7-9723472315f9"
       }
     },
-    owner: "vicyoshioka",
+    owner: "s21sistem",
     plugins: [
       "expo-signature",
       withFixedFirebaseModularHeaders // <- referencia directa al plugin
