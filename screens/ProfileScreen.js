@@ -171,6 +171,19 @@ const ProfileScreen = ({ navigation }) => {
     );
   };
 
+  const getStatusStyle = (status) => {
+    switch(status) {
+      case 'Completo':
+        return { color: 'green' };
+      case 'Incompleto':
+        return { color: 'red' };
+      case 'pendiente':
+        return { color: 'orange' };
+      default:
+        return { color: '#555' };
+    }
+  };
+
   const handleDeleteAccount = async () => {
     Alert.alert(
       'Eliminar Cuenta',
@@ -223,6 +236,7 @@ const ProfileScreen = ({ navigation }) => {
       ]
     );
   };
+
 
   if (loading) {
     return (
@@ -288,6 +302,9 @@ const ProfileScreen = ({ navigation }) => {
                   <Text style={styles.cardDetail}>Tipo: {formatValue(player.tipo_inscripcion)}</Text>
                   <Text style={styles.cardDetail}>MFL: {formatValue(player.numero_mfl)}</Text>
                   <Text style={styles.cardDetail}>Categoría: {formatValue(player.categoria)}</Text>
+                  <Text style={[styles.cardDetail, getStatusStyle(player.estatus)]}>
+                    Estatus: {formatValue(player.estatus)}
+                  </Text>
                 </View>
               </View>
               <View style={styles.cardButtons}>
@@ -303,12 +320,7 @@ const ProfileScreen = ({ navigation }) => {
                 >
                   <Text style={styles.buttonText}>Equipo</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.deleteButton]}
-                  onPress={() => handleDeletePlayer(player.id)}
-                >
-                  <Text style={styles.buttonText}>Eliminar</Text>
-                </TouchableOpacity>
+
               </View>
             </View>
           ))
@@ -329,6 +341,9 @@ const ProfileScreen = ({ navigation }) => {
                   <Text style={styles.cardDetail}>Tipo: {formatValue(cheerleader.tipo_inscripcion)}</Text>
                   <Text style={styles.cardDetail}>MFL: {formatValue(cheerleader.numero_mfl)}</Text>
                   <Text style={styles.cardDetail}>Categoría: {formatValue(cheerleader.categoria)}</Text>
+                  <Text style={[styles.cardDetail, getStatusStyle(cheerleader.estatus)]}>
+                    Estatus: {formatValue(cheerleader.estatus)}
+                  </Text>
                 </View>
               </View>
               <View style={styles.cardButtons}>

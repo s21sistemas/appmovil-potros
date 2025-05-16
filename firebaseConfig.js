@@ -1,29 +1,24 @@
+
 import { initializeApp } from 'firebase/app';
-import { initializeAuth, getReactNativePersistence, browserLocalPersistence } from 'firebase/auth';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getAuth } from 'firebase/auth';
 import { initializeFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCepGR5AoV8rVcay5Y-T4KItOJ-YqRRKLk",
-  authDomain: "clubpotros-f28a5.firebaseapp.com",
-  projectId: "clubpotros-f28a5",
-  storageBucket: "clubpotros-f28a5.firebasestorage.app",
-  messagingSenderId: "650568328185",
-  appId: "1:650568328185:web:f9c5283d502df85d7ad328",
-  measurementId: "G-LDX9FQH6ED"
+  apiKey: "AIzaSyAxQEbSBtaSwO76yNhHpGst63jWZkqkzxE",
+  authDomain: "potros-632ee.firebaseapp.com",
+  projectId: "potros-632ee",
+  storageBucket: "potros-632ee.firebasestorage.app",
+  messagingSenderId: "715399204517",
+  appId: "1:715399204517:web:6f82c57e723c47931b074c"
 };
 
 // Inicializar Firebase
 const app = initializeApp(firebaseConfig);
 
-// Configuración de Auth con persistencia multiplataforma
-const auth = initializeAuth(app, {
-  persistence: typeof window === 'undefined' 
-    ? getReactNativePersistence(AsyncStorage) 
-    : browserLocalPersistence
-});
+// Auth sin persistencia personalizada (compatible con Expo Go)
+const auth = getAuth(app);
 
-// Configuración de Firestore
+// Firestore
 const db = initializeFirestore(app, {
   experimentalForceLongPolling: true,
   useFetchStreams: false,

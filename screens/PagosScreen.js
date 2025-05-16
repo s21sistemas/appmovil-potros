@@ -20,7 +20,7 @@ import * as FileSystem from 'expo-file-system';
 import RNHTMLtoPDF from 'react-native-html-to-pdf';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
-
+//https://us-central1-clubtoros-c8a29.cloudfunctions.net/sendEmailFunction
 const { width, height } = Dimensions.get("window");
 
 const PagosScreen = ({ route, navigation }) => {

@@ -10,7 +10,9 @@ import {
   Image, 
   Pressable, 
   Platform,
-  ActivityIndicator
+  ActivityIndicator,
+  ScrollView,
+  KeyboardAvoidingView
 } from 'react-native';
 import { db, auth } from '../firebaseConfig';
 import { collection, addDoc, query, where, getDocs } from 'firebase/firestore';
@@ -51,7 +53,6 @@ const RegisterScreen = ({ navigation }) => {
     }
   };
 
-  // Función para traducir errores de Firebase
   const translateFirebaseError = (error) => {
     switch (error.code) {
       case 'auth/email-already-in-use':
@@ -84,18 +85,6 @@ const RegisterScreen = ({ navigation }) => {
       isValid = false;
     }
 
-    if (!telefono.trim()) {
-      newErrors.telefono = 'El teléfono es obligatorio.';
-      isValid = false;
-    } else if (!/^\d{10}$/.test(telefono)) {
-      newErrors.telefono = 'El teléfono debe tener 10 dígitos.';
-      isValid = false;
-    }
-
-    if (!ocupacion.trim()) {
-      newErrors.ocupacion = 'La ocupación es obligatoria.';
-      isValid = false;
-    }
 
     setErrors(newErrors);
     return isValid;
@@ -111,14 +100,14 @@ const RegisterScreen = ({ navigation }) => {
     return querySnapshot.empty;
   };
 
-  const sendEmail = async (email, code) => {
+  const sendEmail = async (email, code, uid) => {
     try {
       const response = await fetch('https://us-central1-clubpotros-f28a5.cloudfunctions.net/sendEmail', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email, code }),
+        body: JSON.stringify({ email, code, uid }),
       });
 
       const data = await response.json();
@@ -137,7 +126,6 @@ const RegisterScreen = ({ navigation }) => {
     setLoading(true);
 
     try {
-      // Generar un código único
       let codigoAcceso;
       let isUnique = false;
       let intentos = 0;
@@ -153,7 +141,6 @@ const RegisterScreen = ({ navigation }) => {
         throw new Error('No se pudo generar un código único. Por favor, inténtalo de nuevo.');
       }
 
-      // Mostrar feedback visual
       Alert.alert(
         'Registrando usuario',
         'Estamos creando tu cuenta. Por favor espera...',
@@ -161,14 +148,12 @@ const RegisterScreen = ({ navigation }) => {
         { cancelable: false }
       );
 
-      // Crear usuario en Firebase Authentication
       const userCredential = await createUserWithEmailAndPassword(auth, correo, codigoAcceso);
       const user = userCredential.user;
 
-      // Guardar datos en Firestore
       const userData = {
         uid: user.uid,
-        rol_id: user.uid,
+        rol_id: "",
         nombre_completo: nombreCompleto,
         correo,
         celular: telefono,
@@ -179,7 +164,6 @@ const RegisterScreen = ({ navigation }) => {
 
       await addDoc(collection(db, 'usuarios'), userData);
 
-      // Enviar correo con el código
       Alert.alert(
         'Enviando código de acceso',
         'Estamos enviando el código a tu correo electrónico...',
@@ -187,9 +171,8 @@ const RegisterScreen = ({ navigation }) => {
         { cancelable: false }
       );
 
-      await sendEmail(correo, codigoAcceso);
+      await sendEmail(correo, codigoAcceso, user.uid);
 
-      // Éxito - mostrar mensaje y redirigir
       showAlert(
         '¡Registro exitoso!', 
         `Usuario registrado correctamente. Tu código de acceso ha sido enviado a tu correo electrónico.`, 
@@ -199,7 +182,6 @@ const RegisterScreen = ({ navigation }) => {
     } catch (err) {
       console.error('Error al registrar el usuario:', err);
       
-      // Manejar errores específicos de Firebase
       const errorMessage = err.code 
         ? translateFirebaseError(err) 
         : err.message || 'Error al registrar el usuario. Por favor, inténtalo de nuevo.';
@@ -211,199 +193,250 @@ const RegisterScreen = ({ navigation }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.rectangle}>
-        <View style={styles.leftColumn}>
-          <Image
-            source={require('../assets/logoPotros.jpg')}
-            style={styles.image}
-            resizeMode="contain"
-          />
-        </View>
-        <View style={styles.rightColumn}>
-          <Text style={styles.welcomeText}>Registro</Text>
-          <Text style={styles.subtitle}>Registro para padres/tutores de jugadores</Text>
-          
-          <TextInput
-            style={[styles.input, errors.nombreCompleto ? styles.inputError : null]}
-            placeholder="Nombre Completo"
-            placeholderTextColor="#999"
-            value={nombreCompleto}
-            onChangeText={setNombreCompleto}
-            editable={!loading}
-          />
-          {errors.nombreCompleto ? <Text style={styles.errorText}>{errors.nombreCompleto}</Text> : null}
+    <SafeAreaView style={styles.safeArea}>
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardAvoidingView}
+      >
+        <ScrollView contentContainerStyle={styles.scrollContainer}>
+          <View style={styles.container}>
+            <View style={styles.header}>
+              <Image
+                source={require('../assets/logoPotros.jpg')}
+                style={styles.logo}
+                resizeMode="contain"
+              />
+              <Text style={styles.title}>Registro Club Potros</Text>
+              <Text style={styles.subtitle}>Padres/Tutores de Jugadores</Text>
+            </View>
 
-          <TextInput
-            style={[styles.input, errors.correo ? styles.inputError : null]}
-            placeholder="Correo electrónico"
-            placeholderTextColor="#999"
-            value={correo}
-            onChangeText={setCorreo}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            editable={!loading}
-          />
-          {errors.correo ? <Text style={styles.errorText}>{errors.correo}</Text> : null}
+            <View style={styles.formContainer}>
+              <View style={styles.inputContainer}>
+                <Text style={styles.label}>Nombre Completo</Text>
+                <TextInput
+                  style={[styles.input, errors.nombreCompleto && styles.inputError]}
+                  placeholder="Ej. Juan Pérez López"
+                  placeholderTextColor="#999"
+                  value={nombreCompleto}
+                  onChangeText={setNombreCompleto}
+                  editable={!loading}
+                />
+                {errors.nombreCompleto && <Text style={styles.errorText}>{errors.nombreCompleto}</Text>}
+              </View>
 
-          <TextInput
-            style={[styles.input, errors.telefono ? styles.inputError : null]}
-            placeholder="Teléfono (10 dígitos)"
-            placeholderTextColor="#999"
-            value={telefono}
-            onChangeText={setTelefono}
-            keyboardType="phone-pad"
-            maxLength={10}
-            editable={!loading}
-          />
-          {errors.telefono ? <Text style={styles.errorText}>{errors.telefono}</Text> : null}
+              <View style={styles.inputContainer}>
+                <Text style={styles.label}>Correo Electrónico</Text>
+                <TextInput
+                  style={[styles.input, errors.correo && styles.inputError]}
+                  placeholder="Ej. usuario@correo.com"
+                  placeholderTextColor="#999"
+                  value={correo}
+                  onChangeText={setCorreo}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  editable={!loading}
+                />
+                {errors.correo && <Text style={styles.errorText}>{errors.correo}</Text>}
+              </View>
 
-          <TextInput
-            style={[styles.input, errors.ocupacion ? styles.inputError : null]}
-            placeholder="Ocupación"
-            placeholderTextColor="#999"
-            value={ocupacion}
-            onChangeText={setOcupacion}
-            editable={!loading}
-          />
-          {errors.ocupacion ? <Text style={styles.errorText}>{errors.ocupacion}</Text> : null}
+              <View style={styles.inputContainer}>
+                <Text style={styles.label}>Teléfono <Text style={styles.optionalText}>(opcional)</Text></Text>
+                <TextInput
+                  style={[styles.input, errors.telefono && styles.inputError]}
+                  placeholder="10 dígitos"
+                  placeholderTextColor="#999"
+                  value={telefono}
+                  onChangeText={setTelefono}
+                  keyboardType="phone-pad"
+                  maxLength={10}
+                  editable={!loading}
+                />
+                {errors.telefono && <Text style={styles.errorText}>{errors.telefono}</Text>}
+              </View>
 
-          <Pressable 
-            style={({ pressed }) => [
-              styles.loginButton, 
-              pressed && styles.loginButtonPressed,
-              loading && styles.loginButtonDisabled
-            ]} 
-            onPress={handleRegister}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator size="small" color="#FFF" />
-            ) : (
-              <>
-                <Ionicons name="person-add" size={20} color="#FFF" style={styles.buttonIcon} />
-                <Text style={styles.loginButtonText}>Registrarse</Text>
-              </>
-            )}
-          </Pressable>
+              <View style={styles.inputContainer}>
+                <Text style={styles.label}>Ocupación <Text style={styles.optionalText}>(opcional)</Text></Text>
+                <TextInput
+                  style={[styles.input, errors.ocupacion && styles.inputError]}
+                  placeholder="Ej. Profesionista, Comerciante"
+                  placeholderTextColor="#999"
+                  value={ocupacion}
+                  onChangeText={setOcupacion}
+                  editable={!loading}
+                />
+                {errors.ocupacion && <Text style={styles.errorText}>{errors.ocupacion}</Text>}
+              </View>
 
-          <TouchableOpacity 
-            onPress={() => navigation.navigate('Login')}
-            disabled={loading}
-          >
-            <Text style={[styles.linkText, loading && styles.linkTextDisabled]}>
-              ¿Ya tienes una cuenta? Inicia Sesión
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+              <Pressable 
+                style={({ pressed }) => [
+                  styles.button,
+                  pressed && styles.buttonPressed,
+                  loading && styles.buttonDisabled
+                ]} 
+                onPress={handleRegister}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <View style={styles.buttonContent}>
+                    <Ionicons name="person-add" size={20} color="#FFF" />
+                    <Text style={styles.buttonText}>Registrarse</Text>
+                  </View>
+                )}
+              </Pressable>
+
+              <View style={styles.footer}>
+                <Text style={styles.footerText}>¿Ya tienes una cuenta?</Text>
+                <TouchableOpacity 
+                  onPress={() => navigation.navigate('Login')}
+                  disabled={loading}
+                >
+                  <Text style={[styles.footerLink, loading && styles.linkDisabled]}>Iniciar Sesión</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
     backgroundColor: '#FFF',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
-  rectangle: {
-    flexDirection: 'row',
-    width: '90%',
-    height: '55%',
-    borderRadius: 10,
-    overflow: 'hidden',
+  keyboardAvoidingView: {
+    flex: 1,
+  },
+  scrollContainer: {
+    flexGrow: 1,
+    justifyContent: 'center',
+  },
+  container: {
+    flex: 1,
+    padding: 20,
+    justifyContent: 'center',
+  },
+  header: {
+    alignItems: 'center',
+    marginBottom: 30,
+  },
+  logo: {
+    width: 120,
+    height: 120,
+    marginBottom: 15,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#b51f28',
+    marginBottom: 5,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+  },
+  formContainer: {
+    backgroundColor: '#FFF',
+    borderRadius: 15,
+    padding: 20,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
     shadowOpacity: 0.1,
     shadowRadius: 10,
     elevation: 5,
   },
-  leftColumn: {
-    flex: 1,
-    backgroundColor: '#b51f28',
-    justifyContent: 'center',
-    alignItems: 'center',
+  inputContainer: {
+    marginBottom: 15,
   },
-  rightColumn: {
-    flex: 1,
-    padding: 20,
-    justifyContent: 'center',
-    backgroundColor: '#FFF',
-  },
-  welcomeText: {
-    fontFamily: 'MiFuente',
-    fontSize: 30,
-    color: '#000',
-    textAlign: 'center',
-    paddingBottom: 10,
-  },
-  subtitle: {
+  label: {
     fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 20,
-    fontStyle: 'italic',
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 5,
+    marginLeft: 5,
+  },
+  optionalText: {
+    fontSize: 12,
+    color: '#999',
+    fontWeight: 'normal',
   },
   input: {
-    height: 45,
-    borderColor: '#DDD',
+    height: 50,
     borderWidth: 1,
+    borderColor: '#E0E0E0',
     borderRadius: 10,
-    marginBottom: 5,
     paddingHorizontal: 15,
-    fontSize: 14,
+    fontSize: 16,
+    backgroundColor: '#FAFAFA',
   },
   inputError: {
-    borderColor: '#FF3B30',
+    borderColor: '#b51f28',
+    backgroundColor: '#FFF9F9',
   },
-  loginButton: {
+  errorText: {
+    color: '#b51f28',
+    fontSize: 12,
+    marginTop: 5,
+    marginLeft: 5,
+  },
+  button: {
     backgroundColor: '#b51f28',
-    padding: 12,
+    padding: 15,
     borderRadius: 10,
     alignItems: 'center',
-    marginBottom: 15,
-    flexDirection: 'row',
     justifyContent: 'center',
+    marginTop: 10,
+    marginBottom: 20,
     shadowColor: '#b51f28',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 5,
     elevation: 3,
   },
-  loginButtonPressed: {
+  buttonPressed: {
     backgroundColor: '#9a1a22',
   },
-  loginButtonDisabled: {
-    backgroundColor: '#cccccc',
+  buttonDisabled: {
+    backgroundColor: '#D3D3D3',
   },
-  loginButtonText: {
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buttonText: {
     color: '#FFF',
     fontWeight: 'bold',
     fontSize: 16,
+    marginLeft: 10,
   },
-  buttonIcon: {
-    marginRight: 10,
+  footer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 10,
   },
-  linkText: {
-    color: '#b51f28',
-    textAlign: 'center',
-    marginBottom: 10,
+  footerText: {
+    color: '#666',
     fontSize: 14,
   },
-  linkTextDisabled: {
-    color: '#999',
-  },
-  errorText: {
-    color: '#FF3B30',
-    fontSize: 12,
-    marginBottom: 10,
+  footerLink: {
+    color: '#b51f28',
+    fontWeight: 'bold',
+    fontSize: 14,
     marginLeft: 5,
+    textDecorationLine: 'underline',
   },
-  image: {
-    width: '80%',
-    height: '80%',
+  linkDisabled: {
+    color: '#999',
   },
 });
 

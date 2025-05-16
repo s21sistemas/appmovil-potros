@@ -193,13 +193,7 @@ const AvisosScreen = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={24} color="#fff" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Mis Avisos</Text>
-        <View style={{ width: 24 }} />
-      </View>
+
 
       {avisos.length === 0 ? (
         <Animated.View 
@@ -349,7 +343,7 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   deleteButton: {
-    backgroundColor: '#FF3B30',
+    backgroundColor: '#b51f28',
     justifyContent: 'center',
     alignItems: 'center',
     width: 80,
