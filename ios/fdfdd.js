@@ -1,4 +1,4 @@
-mi vista no sube imagenes a firebase import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Alert, TextInput,
   Animated, Platform, PanResponder, Linking, ActivityIndicator,
@@ -8,7 +8,7 @@ import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Svg, { Path } from 'react-native-svg';
-import { getStorage, ref, uploadBytesResumable, getDownloadURL,uploadString } from 'firebase/storage';
+import { getStorage, ref, uploadBytes, getDownloadURL,uploadString } from 'firebase/storage';
 import { getFirestore, collection, addDoc, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
 import { auth } from '../firebaseConfig';
 import * as DocumentPicker from 'expo-document-picker';
@@ -81,20 +81,21 @@ const HomeScreen = ({ navigation }) => {
   ];
 
   const uploadFile = async (fileUri) => {
-    try {
-      const response = await fetch(fileUri);
-      const blob = await response.blob();
+  try {
+    const response = await fetch(fileUri);
+    const blob = await response.blob();
 
-      const storage = getStorage();
-      const storageRef = ref(storage, `fotos/image.jpg`);
+    const fileName = `image_${Date.now()}.jpg`;
+    const storage = getStorage();
+    const storageRef = ref(storage, `fotos/${fileName}`);
 
-      await uploadBytes(storageRef, blob);
-      return await getDownloadURL(storageRef);
-    } catch (error) {
-      Alert.alert("Error", "No se pudo subir la imagen");
-      return null;
-    }
-  };
+    await uploadBytes(storageRef, blob);
+    return await getDownloadURL(storageRef);
+  } catch (error) {
+    console.error("Error al subir imagen:", error);
+    throw new Error("No se pudo subir la imagen a Firebase.");
+  }
+};
 
 const uploadFile1 = async (fileUri, fileName = 'image.jpg', folder = 'fotos') => {
   try {
@@ -183,47 +184,49 @@ const uploadFile1 = async (fileUri, fileName = 'image.jpg', folder = 'fotos') =>
     });
   };
 
-  const handleSubmit = async () => {
+ const handleSubmit = async () => {
   if (!validateForm()) {
     Alert.alert('Error', 'Por favor completa todos los campos requeridos');
     return;
   }
 
   setLoading(true);
-  
-  try {
-    // 1. Verificar conexión a internet
 
-    // 2. Verificar autenticación
+  try {
+    // 1. Verificar autenticación
     const user = auth.currentUser;
     if (!user) {
       throw new Error('No se pudo verificar tu sesión. Vuelve a iniciar sesión.');
     }
     const uid = user.uid;
 
-    // 3. Subir foto del jugador con reintentos
+    // 2. Subir foto del jugador con reintentos
     let fotoJugadorURL = null;
     if (formData.foto_jugador) {
       try {
         fotoJugadorURL = await withRetry(
-        () => uploadFile(formData.foto_jugador),
-        3,
-        1000
-);
+          () => uploadFile(formData.foto_jugador),
+          3,
+          1000
+        );
+
+        if (!fotoJugadorURL) {
+          throw new Error("La URL de la imagen no se pudo obtener.");
+        }
       } catch (uploadError) {
         console.error('Error al subir foto después de varios intentos:', uploadError);
         throw new Error('No se pudo subir la foto. Intenta con otra imagen o verifica tu conexión.');
       }
     }
 
-    // 4. Obtener temporada activa
+    // 3. Obtener temporada activa
     let temporadaActiva = null;
     try {
       const temporadasQuery = query(
         collection(db, 'temporadas'),
         where('estado_temporada', '==', 'Activa')
       );
-      
+
       const temporadasSnapshot = await getDocs(temporadasQuery);
       if (!temporadasSnapshot.empty) {
         const tempDoc = temporadasSnapshot.docs[0];
@@ -234,10 +237,9 @@ const uploadFile1 = async (fileUri, fileName = 'image.jpg', folder = 'fotos') =>
       }
     } catch (dbError) {
       console.error('Error al obtener temporada activa:', dbError);
-      // Continuar sin temporada activa si hay error
     }
 
-    // 5. Crear objeto de registro principal
+    // 4. Crear objeto de registro
     const datosRegistro = {
       nombre: formData.nombre,
       apellido_p: formData.apellido_p,
@@ -248,7 +250,7 @@ const uploadFile1 = async (fileUri, fileName = 'image.jpg', folder = 'fotos') =>
       telefono: formData.telefono,
       fecha_nacimiento: formData.fecha_nacimiento.toISOString().split('T')[0],
       lugar_nacimiento: formData.lugar_nacimiento,
-      curp: formData.curp, 
+      curp: formData.curp,
       grado_escolar: formData.grado_escolar,
       nombre_escuela: formData.nombre_escuela,
       alergias: formData.alergias,
@@ -275,16 +277,16 @@ const uploadFile1 = async (fileUri, fileName = 'image.jpg', folder = 'fotos') =>
       })
     };
 
-    // 6. Guardar en Firestore con transacción
+    // 5. Guardar en Firestore
     const coleccion = formData.tipo_inscripcion === 'porrista' ? 'porristas' : 'jugadores';
     const docRef = await addDoc(collection(db, coleccion), datosRegistro);
-    
-    // 7. Procesar pagos
+
+    // 6. Procesar pagos
     await processPayments(docRef.id, formData, temporadaActiva);
 
-    // 8. Notificar éxito
+    // 7. Éxito
     Alert.alert(
-      'Registro Exitoso', 
+      'Registro Exitoso',
       'Jugador registrado correctamente. Se ha creado el expediente y los pagos correspondientes.',
       [{ text: 'OK', onPress: () => navigation.navigate('MainTabs') }]
     );
@@ -301,10 +303,9 @@ const uploadFile1 = async (fileUri, fileName = 'image.jpg', folder = 'fotos') =>
         firma: formData.firma.length > 0 ? 'EXISTE' : 'NULL'
       }
     });
-    
+
     let errorMessage = error.message || 'Ocurrió un error al completar el registro.';
-    
-    // Mensajes más amigables para errores comunes
+
     if (error.message.includes('network') || error.message.includes('Network')) {
       errorMessage = 'Problema de conexión. Verifica tu internet e intenta nuevamente.';
     } else if (error.message.includes('quota')) {
@@ -312,13 +313,14 @@ const uploadFile1 = async (fileUri, fileName = 'image.jpg', folder = 'fotos') =>
     } else if (error.message.includes('permission')) {
       errorMessage = 'No tienes permisos para realizar esta acción.';
     }
-    
+
     Alert.alert('Error', errorMessage);
   } finally {
     setLoading(false);
     setCurrentUpload(null);
   }
 };
+
 
 // Funciones auxiliares:
 
@@ -482,7 +484,7 @@ const processPayments = async (playerId, formData, temporadaActiva) => {
             abonos: [],
             total_abonado: 0
           }
-        ],
+        ],//https://play.google.com/apps/test/com.mx.s1sistem.ClubToros/3
         monto_total_pagado: 0,
         monto_total_pendiente: total,
         monto_total: total,
@@ -1387,7 +1389,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   button: {
-    backgroundColor: '#b51f28',
+    backgroundColor: '#ffbe00',
     padding: 15,
     borderRadius: 10,
     alignItems: 'center',
@@ -1405,14 +1407,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginVertical: 10,
     borderWidth: 1,
-    borderColor: '#b51f28',
+    borderColor: '#ffbe00',
   },
   secondaryButtonText: {
     color: '#333',
     fontWeight: '500',
   },
   submitButton: {
-    backgroundColor: '#b51f28',
+    backgroundColor: '#ffbe00',
     padding: 15,
     borderRadius: 5,
     alignItems: 'center',
@@ -1432,7 +1434,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 20,
     left: 20,
-    backgroundColor: '#b51f28',
+    backgroundColor: '#ffbe00',
     padding: 15,
     borderRadius: 5,
   },
@@ -1539,7 +1541,7 @@ const styles = StyleSheet.create({
     color: '#444',
   },
   uploadButton: {
-    backgroundColor: '#b51f28',
+    backgroundColor: '#ffbe00',
     padding: 12,
     borderRadius: 6,
     alignItems: 'center',
@@ -1578,7 +1580,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   disabledButton: {
-    backgroundColor: '#b51f28',
+    backgroundColor: '#ffbe00',
   },
   webInput: {
     borderWidth: 1,
@@ -1695,4 +1697,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default HomeScreen; puedes ayudarme ?
+export default HomeScreen;

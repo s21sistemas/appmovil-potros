@@ -1,22 +1,25 @@
 import React, { useState } from 'react';
 import { 
-  View, 
-  Text, 
-  TextInput, 
-  TouchableOpacity, 
-  StyleSheet, 
-  SafeAreaView, 
-  Alert, 
-  Image, 
-  Pressable, 
+View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  SafeAreaView,
+  Alert,
+  Image,
+  KeyboardAvoidingView,
   Platform,
-  ActivityIndicator
+  ScrollView,
+  TouchableWithoutFeedback,
+  Keyboard,
+  Pressable,ActivityIndicator
 } from 'react-native';
 import { db, auth } from '../firebaseConfig';
 import { collection, addDoc, query, where, getDocs } from 'firebase/firestore';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { Ionicons } from '@expo/vector-icons';
-//ffbe00
+//b51f28
 const RegisterScreen = ({ navigation }) => {
   const [nombreCompleto, setNombreCompleto] = useState('');
   const [correo, setCorreo] = useState('');
@@ -100,7 +103,7 @@ const RegisterScreen = ({ navigation }) => {
 
   const sendEmail = async (email, code, uid) => {
     try {
-      const response = await fetch('https://us-central1-clubtoros-c8a29.cloudfunctions.net/sendEmailFunction', {
+      const response = await fetch('https://us-central1-clubpotros-f28a5.cloudfunctions.net/sendEmail', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -150,6 +153,7 @@ const RegisterScreen = ({ navigation }) => {
 
       // Crear usuario en Firebase Authentication
       const userCredential = await createUserWithEmailAndPassword(auth, correo, codigoAcceso);
+      await auth.signOut();
       const user = userCredential.user;
 
       // Guardar datos en Firestore
@@ -175,7 +179,7 @@ const RegisterScreen = ({ navigation }) => {
       );
 
       await sendEmail(correo, codigoAcceso, user.uid);
-
+    
       // Éxito - mostrar mensaje y redirigir
       showAlert(
         '¡Registro exitoso!', 
@@ -199,118 +203,128 @@ const RegisterScreen = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.rectangle}>
-        <View style={styles.leftColumn}>
-          <Image
-            source={require('../assets/logoToros.jpg')}
-            style={styles.image}
-            resizeMode="contain"
-          />
-        </View>
-        <View style={styles.rightColumn}>
-          <Text style={styles.welcomeText}>Registro</Text>
-          <Text style={styles.subtitle}>Registro para padres/tutores de jugadores</Text>
-          <Text style={styles.subtitle}>Ingresa tus datos para realizar tu registro (los campos marcados con * son obligatorios)</Text>
-          
-          <TextInput
-            style={[styles.input, errors.nombreCompleto ? styles.inputError : null]}
-            placeholder="Nombre Completo *"
-            placeholderTextColor="#999"
-            value={nombreCompleto}
-            onChangeText={setNombreCompleto}
-            editable={!loading}
-          />
-          {errors.nombreCompleto ? <Text style={styles.errorText}>{errors.nombreCompleto}</Text> : null}
-
-          <TextInput
-            style={[styles.input, errors.correo ? styles.inputError : null]}
-            placeholder="Correo electrónico *"
-            placeholderTextColor="#999"
-            value={correo}
-            onChangeText={setCorreo}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            editable={!loading}
-          />
-          {errors.correo ? <Text style={styles.errorText}>{errors.correo}</Text> : null}
-
-          <TextInput
-            style={[styles.input, errors.telefono ? styles.inputError : null]}
-            placeholder="Teléfono (10 dígitos)"
-            placeholderTextColor="#999"
-            value={telefono}
-            onChangeText={setTelefono}
-            keyboardType="phone-pad"
-            maxLength={10}
-            editable={!loading}
-          />
-          {errors.telefono ? <Text style={styles.errorText}>{errors.telefono}</Text> : null}
-
-          <TextInput
-            style={[styles.input, errors.ocupacion ? styles.inputError : null]}
-            placeholder="Ocupación"
-            placeholderTextColor="#999"
-            value={ocupacion}
-            onChangeText={setOcupacion}
-            editable={!loading}
-          />
-          {errors.ocupacion ? <Text style={styles.errorText}>{errors.ocupacion}</Text> : null}
-
-          <Pressable 
-            style={({ pressed }) => [
-              styles.loginButton, 
-              pressed && styles.loginButtonPressed,
-              loading && styles.loginButtonDisabled
-            ]} 
-            onPress={handleRegister}
-            disabled={loading}
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={{ flex: 1 }}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 20}
           >
-            {loading ? (
-              <ActivityIndicator size="small" color="#FFF" />
-            ) : (
-              <>
-                <Ionicons name="person-add" size={20} color="#FFF" style={styles.buttonIcon} />
-                <Text style={styles.loginButtonText}>Registrarse</Text>
-              </>
-            )}
-          </Pressable>
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+              <ScrollView
+                contentContainerStyle={styles.scrollContainer}
+                keyboardShouldPersistTaps="handled"
+              >
+              <View style={styles.rectangle}>
+                
+                <View style={styles.rightColumn}>
+                  
+                  <Text style={styles.welcomeText}>Registro</Text>
+                  <Text style={styles.subtitle}>Registro para padres/tutores de jugadores</Text>
+                  <Text style={styles.subtitle}>Ingresa tus datos para realizar tu registro (los campos marcados con * son obligatorios)</Text>
+                  
+                  <TextInput
+                    style={[styles.input, errors.nombreCompleto ? styles.inputError : null]}
+                    placeholder="Nombre Completo *"
+                    placeholderTextColor="#999"
+                    value={nombreCompleto}
+                    onChangeText={setNombreCompleto}
+                    editable={!loading}
+                  />
+                  {errors.nombreCompleto ? <Text style={styles.errorText}>{errors.nombreCompleto}</Text> : null}
 
-          <TouchableOpacity 
-            onPress={() => navigation.navigate('Login')}
-            disabled={loading}
-          >
-            <Text style={[styles.linkText, loading && styles.linkTextDisabled]}>
-              ¿Ya tienes una cuenta? Inicia Sesión
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+                  <TextInput
+                    style={[styles.input, errors.correo ? styles.inputError : null]}
+                    placeholder="Correo electrónico *"
+                    placeholderTextColor="#999"
+                    value={correo}
+                    onChangeText={setCorreo}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    editable={!loading}
+                  />
+                  {errors.correo ? <Text style={styles.errorText}>{errors.correo}</Text> : null}
+
+                  <TextInput
+                    style={[styles.input, errors.telefono ? styles.inputError : null]}
+                    placeholder="Teléfono (10 dígitos)"
+                    placeholderTextColor="#999"
+                    value={telefono}
+                    onChangeText={setTelefono}
+                    keyboardType="phone-pad"
+                    maxLength={10}
+                    editable={!loading}
+                  />
+                  {errors.telefono ? <Text style={styles.errorText}>{errors.telefono}</Text> : null}
+
+                  <TextInput
+                    style={[styles.input, errors.ocupacion ? styles.inputError : null]}
+                    placeholder="Ocupación"
+                    placeholderTextColor="#999"
+                    value={ocupacion}
+                    onChangeText={setOcupacion}
+                    editable={!loading}
+                  />
+                  {errors.ocupacion ? <Text style={styles.errorText}>{errors.ocupacion}</Text> : null}
+
+                  <Pressable 
+                    style={({ pressed }) => [
+                      styles.loginButton, 
+                      pressed && styles.loginButtonPressed,
+                      loading && styles.loginButtonDisabled
+                    ]} 
+                    onPress={handleRegister}
+                    disabled={loading}
+                  >
+                    {loading ? (
+                      <ActivityIndicator size="small" color="#FFF" />
+                    ) : (
+                      <>
+                        <Ionicons name="person-add" size={20} color="#FFF" style={styles.buttonIcon} />
+                        <Text style={styles.loginButtonText}>Registrarse</Text>
+                      </>
+                    )}
+                  </Pressable>
+
+                  <TouchableOpacity 
+                    onPress={() => navigation.navigate('Login')}
+                    disabled={loading}
+                  >
+                    <Text style={[styles.linkText, loading && styles.linkTextDisabled]}>
+                      ¿Ya tienes una cuenta? Inicia Sesión
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              </ScrollView>
+              </TouchableWithoutFeedback>
+              </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+    container: {
     flex: 1,
     backgroundColor: '#FFF',
+  },
+  scrollContainer: {
+    flexGrow: 1,
     justifyContent: 'center',
-    alignItems: 'center',
   },
   rectangle: {
-    flexDirection: 'row',
-    width: '90%',
-    height: '55%',
-    borderRadius: 10,
-    overflow: 'hidden',
+    backgroundColor: '#FFF',
+    borderRadius: 15,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 10,
     elevation: 5,
+    marginHorizontal: 20,
+    paddingVertical: 30,
+    paddingHorizontal: 20,
   },
   leftColumn: {
     flex: 1,
-    backgroundColor: '#ffbe00',
+    backgroundColor: '#b51f28',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -335,26 +349,33 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   input: {
-    height: 45,
-    borderColor: '#DDD',
+     height: 50,
     borderWidth: 1,
-    borderRadius: 10,
-    marginBottom: 5,
-    paddingHorizontal: 15,
-    fontSize: 14,
+    borderColor: '#DDD',
+    borderRadius: 25,
+    paddingHorizontal: 20,
+    marginBottom: 10,
+    backgroundColor: '#FAFAFA',
+    fontSize: 16,
+  },
+    logoImage: {
+    width: 120,
+    height: 120,
+    marginBottom: 20,
+    alignContent:'center',
   },
   inputError: {
     borderColor: '#FF3B30',
   },
   loginButton: {
-    backgroundColor: '#ffbe00',
+    backgroundColor: '#b51f28',
     padding: 12,
     borderRadius: 10,
     alignItems: 'center',
     marginBottom: 15,
     flexDirection: 'row',
     justifyContent: 'center',
-    shadowColor: '#ffbe00',
+    shadowColor: '#b51f28',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 5,
@@ -375,7 +396,7 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   linkText: {
-    color: '#ffbe00',
+    color: '#b51f28',
     textAlign: 'center',
     marginBottom: 10,
     fontSize: 14,

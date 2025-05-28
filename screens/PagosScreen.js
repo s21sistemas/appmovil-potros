@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import {
-  View,Text,
+  View, Text,
   StyleSheet,
   TouchableOpacity,
   Linking,
@@ -52,6 +52,12 @@ const PagosScreen = ({ route, navigation }) => {
     return null;
   };
 
+  // Función segura para formatear números
+  const safeToFixed = (value, decimals = 2) => {
+    const num = Number(value) || 0;
+    return num.toFixed(decimals);
+  };
+
   useEffect(() => {
     if (route.params?.jugadorId) {
       setJugadorId(route.params.jugadorId);
@@ -61,18 +67,16 @@ const PagosScreen = ({ route, navigation }) => {
     }
   }, [route.params]);
 
-  // Función mejorada para obtener datos de temporada
+  // Función para obtener datos de temporada
   const fetchTemporadaData = async (temporadaInfo) => {
     try {
       if (!temporadaInfo) return;
       
-      // Si ya es un objeto con label y value (formato nuevo)
       if (temporadaInfo.label && temporadaInfo.value) {
         setTemporadaData(temporadaInfo);
         return;
       }
       
-      // Si es solo el ID (formato antiguo)
       if (typeof temporadaInfo === 'string') {
         const temporadaRef = doc(db, "temporadas", temporadaInfo);
         const temporadaSnap = await getDoc(temporadaRef);
@@ -142,7 +146,6 @@ const PagosScreen = ({ route, navigation }) => {
         if (!querySnapshot.empty) {
           const docData = querySnapshot.docs[0].data();
           
-          // Formatear los pagos
           const pagosFormateados = docData.pagos.map((pago) => ({
             estatus: pago.estatus || "pendiente",
             fecha_limite: pago.fecha_limite || null,
@@ -159,12 +162,10 @@ const PagosScreen = ({ route, navigation }) => {
             submonto: pago.submonto || 0
           }));
 
-          // Obtener datos de la temporada (maneja ambos formatos)
           if (docData.temporadaId) {
             await fetchTemporadaData(docData.temporadaId);
           }
 
-          // Calcular montos
           const montoTotalPagado = docData.monto_total_pagado || pagosFormateados
             .filter(pago => pago.estatus === "pagado")
             .reduce((sum, pago) => sum + (pago.submonto || pago.monto), 0);
@@ -209,29 +210,21 @@ const PagosScreen = ({ route, navigation }) => {
   const generatePDF = async (pago) => {
     let logoBase64 = '';
     try {
-      // Convertir la imagen a base64 (solo para móvil)
       if (Platform.OS !== 'web') {
         try {
-          // Importar la imagen directamente
-          const image = require('../assets/iconToros.png');
-          
-          // Leer el archivo como base64
+          const image = require('../assets/potrosIcon.png');
           logoBase64 = await FileSystem.readAsStringAsync(
             Image.resolveAssetSource(image).uri, 
             { encoding: FileSystem.EncodingType.Base64 }
           );
-          
-          // Formatear como URI de datos
           logoBase64 = `data:image/jpeg;base64,${logoBase64}`;
         } catch (imageError) {
           console.warn('No se pudo cargar la imagen del logo:', imageError);
         }
       } else {
-        // Para web (usa la ruta pública)
-        logoBase64 = '/logoToros.jpg';
+        logoBase64 = '/logoPotros.jpg';
       }
   
-      // Obtener la fecha actual formateada
       const today = new Date();
       const formattedDate = today.toLocaleDateString('es-MX', {
         day: '2-digit',
@@ -239,7 +232,6 @@ const PagosScreen = ({ route, navigation }) => {
         year: 'numeric'
       });
   
-      // Crear el HTML para el PDF
       const html = `
       <html>
         <head>
@@ -328,7 +320,7 @@ const PagosScreen = ({ route, navigation }) => {
         </head>
         <body>
           <div class="header">
-            ${logoBase64 ? `<img src="${logoBase64}" class="logo" alt="Logo Club Toros" />` : ''}
+            ${logoBase64 ? `<img src="${logoBase64}" class="logo" alt="Logo Club Potros" />` : ''}
             <div class="title">COMPROBANTE DE PAGO</div>
             <div class="subtitle">${esPorrista ? 'Porrista' : 'Jugador'}</div>
           </div>
@@ -360,12 +352,12 @@ const PagosScreen = ({ route, navigation }) => {
             </div>
             <div class="info-row">
               <div class="info-label">Monto:</div>
-              <div class="info-value">$${pago.monto.toFixed(2)}</div>
+              <div class="info-value">$${safeToFixed(pago.monto)}</div>
             </div>
             ${pago.submonto > 0 ? `
             <div class="info-row">
               <div class="info-label">Submonto:</div>
-              <div class="info-value">$${pago.submonto.toFixed(2)}</div>
+              <div class="info-value">$${safeToFixed(pago.submonto)}</div>
             </div>` : ''}
             ${pago.fecha_limite ? `
             <div class="info-row">
@@ -396,17 +388,17 @@ const PagosScreen = ({ route, navigation }) => {
             ${pago.abono === "SI" ? `
             <div class="info-row">
               <div class="info-label">Abonos:</div>
-              <div class="info-value">$${pago.total_abonado.toFixed(2)} de $${pago.monto.toFixed(2)}</div>
+              <div class="info-value">$${safeToFixed(pago.total_abonado)} de $${safeToFixed(pago.monto)}</div>
             </div>` : ''}
             ${pago.metodo_pago ? `
-            <div class="info-row">
+            <div class="info-row"> 
               <div class="info-label">Método de pago:</div>
               <div class="info-value">${pago.metodo_pago}</div>
             </div>` : ''}
           </div>
           
           <div class="footer">
-            Documento generado el ${formattedDate} - Club Toros © ${today.getFullYear()}
+            Documento generado el ${formattedDate} - Club Potros © ${today.getFullYear()}
           </div>
         </body>
       </html>`;
@@ -442,7 +434,7 @@ const PagosScreen = ({ route, navigation }) => {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#ffbe00" />
+        <ActivityIndicator size="large" color="#b51f28" />
         <Text style={styles.loadingText}>Cargando información de pagos...</Text>
       </View>
     );
@@ -481,18 +473,12 @@ const PagosScreen = ({ route, navigation }) => {
           contentContainerStyle={styles.scrollContent}
         >
           <View style={styles.header}>
-            <TouchableOpacity
-              onPress={() => navigation.goBack()}
-              style={styles.backButton}
-            >
-              <Ionicons name="arrow-back" size={24} color="#000" />
-            </TouchableOpacity>
+
             <Text style={styles.headerTitle}>
               Pagos de {pagoData.nombre_jugador}
             </Text>
           </View>
 
-          {/* Mostrar información de la temporada */}
           {temporadaData && (
             <View style={styles.temporadaContainer}>
               <Text style={styles.temporadaText}>
@@ -602,19 +588,19 @@ const PagosScreen = ({ route, navigation }) => {
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Total:</Text>
               <Text style={styles.summaryValue}>
-                ${pagoData.monto_total.toFixed(2)}
+                ${safeToFixed(pagoData.monto_total)}
               </Text>
             </View>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Pagado:</Text>
               <Text style={[styles.summaryValue, styles.paidAmount]}>
-                ${pagoData.monto_total_pagado.toFixed(2)}
+                ${safeToFixed(pagoData.monto_total_pagado)}
               </Text>
             </View>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Pendiente:</Text>
               <Text style={[styles.summaryValue, styles.pendingAmount]}>
-                ${pagoData.monto_total_pendiente.toFixed(2)}
+                ${safeToFixed(pagoData.monto_total_pendiente)}
               </Text>
             </View>
           </View>
@@ -645,12 +631,12 @@ const PagosScreen = ({ route, navigation }) => {
                 </Text>
               </View>
 
-              <Text style={styles.paymentAmount}>${pago.monto.toFixed(2)}</Text>
+              <Text style={styles.paymentAmount}>${safeToFixed(pago.monto)}</Text>
 
               {pago.submonto > 0 && (
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Submonto:</Text>
-                  <Text style={styles.detailValue}>${pago.submonto.toFixed(2)}</Text>
+                  <Text style={styles.detailValue}>${safeToFixed(pago.submonto)}</Text>
                 </View>
               )}
 
@@ -686,7 +672,7 @@ const PagosScreen = ({ route, navigation }) => {
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Abonos:</Text>
                   <Text style={styles.detailValue}>
-                    ${pago.total_abonado.toFixed(2)} de ${pago.monto.toFixed(2)}
+                    ${safeToFixed(pago.total_abonado)} de ${safeToFixed(pago.monto)}
                   </Text>
                 </View>
               )}
@@ -712,6 +698,7 @@ const PagosScreen = ({ route, navigation }) => {
   );
 };
 
+// Estilos (se mantienen igual que en tu código original)
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
@@ -781,7 +768,7 @@ const styles = StyleSheet.create({
     color: "#777",
   },
   retryButton: {
-    backgroundColor: "#ffbe00",
+    backgroundColor: "#b51f28",
     paddingVertical: 12,
     paddingHorizontal: 25,
     borderRadius: 5,
@@ -917,7 +904,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   downloadButton: {
-    backgroundColor: "#ffbe00",
+    backgroundColor: "#b51f28",
     borderRadius: 5,
     padding: 8,
     alignItems: "center",

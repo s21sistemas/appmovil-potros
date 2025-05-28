@@ -24,27 +24,34 @@ const AvisosScreen = ({ navigation }) => {
   const swipeableRefs = useRef({});
 
   useEffect(() => {
-    const unsubscribeAuth = auth.onAuthStateChanged(user => {
-      setCurrentUser(user);
-      if (user) {
-        fetchAvisos(user.uid);
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 500,
-          useNativeDriver: true,
-        }).start();
-      } else {
-        setLoading(false);
-      }
-    });
+    const user = auth.currentUser;
 
-    return () => unsubscribeAuth();
+    if (user) {
+      console.log("Usuario autenticado UID:", user.uid);
+      setCurrentUser(user);
+      fetchAvisos(user.uid); // Pasamos directamente el UID del usuario
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      console.log("No hay usuario autenticado");
+      setLoading(false);
+    }
+
   }, []);
 
   const fetchAvisos = (userId) => {
+    if (!userId) {
+      console.log("ID de usuario no válido para la consulta");
+      setLoading(false);
+      return;
+    }
+
     const q = query(
       collection(db, 'alertas'),
-      where('tutor_id', '==', userId)
+      where('uid', '==', userId) // Cambiamos 'tutorId' por 'uid' para que coincida con tu estructura de datos
     );
 
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
@@ -52,13 +59,18 @@ const AvisosScreen = ({ navigation }) => {
       querySnapshot.forEach((doc) => {
         avisosData.push({ id: doc.id, ...doc.data() });
       });
+      console.log("Avisos encontrados:", avisosData.length);
       setAvisos(avisosData);
+      setLoading(false);
+    }, (error) => {
+      console.error("Error en la consulta:", error);
       setLoading(false);
     });
 
     return unsubscribe;
   };
 
+  // Resto del código permanece igual...
   const handleDelete = (id) => {
     Alert.alert(
       'Eliminar Aviso',
@@ -68,7 +80,6 @@ const AvisosScreen = ({ navigation }) => {
           text: 'Cancelar',
           style: 'cancel',
           onPress: () => {
-            // Cerrar el Swipeable al cancelar
             if (swipeableRefs.current[id]) {
               swipeableRefs.current[id].close();
             }
@@ -86,7 +97,6 @@ const AvisosScreen = ({ navigation }) => {
   const deleteAviso = async (id) => {
     try {
       await deleteDoc(doc(db, 'alertas', id));
-      // No necesitamos actualizar el estado manualmente porque onSnapshot lo hará automáticamente
     } catch (error) {
       console.error('Error al eliminar aviso:', error);
       Alert.alert('Error', 'No se pudo eliminar el aviso');
@@ -122,7 +132,6 @@ const AvisosScreen = ({ navigation }) => {
         renderRightActions(progress, dragX, item.id)
       }
       onSwipeableOpen={() => {
-        // Cerrar otros Swipeables abiertos
         Object.keys(swipeableRefs.current).forEach(key => {
           if (key !== item.id && swipeableRefs.current[key]) {
             swipeableRefs.current[key].close();
@@ -178,7 +187,7 @@ const AvisosScreen = ({ navigation }) => {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#ffbe00" />
+        <ActivityIndicator size="large" color="#b51f28" />
       </View>
     );
   }
@@ -205,7 +214,7 @@ const AvisosScreen = ({ navigation }) => {
             { opacity: fadeAnim }
           ]}
         >
-          <Ionicons name="notifications-off" size={48} color="#ffbe00" />
+          <Ionicons name="notifications-off" size={48} color="#b51f28" />
           <Text style={styles.noAvisosText}>No tienes avisos pendientes</Text>
           <Text style={styles.noAvisosSubtext}>Cuando tengas notificaciones, aparecerán aquí</Text>
         </Animated.View>
@@ -222,6 +231,7 @@ const AvisosScreen = ({ navigation }) => {
   );
 };
 
+// Los estilos permanecen igual...
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -234,7 +244,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF',
   },
   header: {
-    backgroundColor: '#ffbe00',
+    backgroundColor: '#b51f28',
     padding: 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -284,7 +294,7 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 3,
     borderLeftWidth: 4,
-    borderLeftColor: '#ffbe00',
+    borderLeftColor: '#b51f28',
   },
   avisoHeader: {
     flexDirection: 'row',
@@ -346,7 +356,7 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   deleteButton: {
-    backgroundColor: '#ffbe00',
+    backgroundColor: '#b51f28',
     justifyContent: 'center',
     alignItems: 'center',
     width: 80,

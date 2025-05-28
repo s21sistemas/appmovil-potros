@@ -17,7 +17,6 @@ import { auth, db } from '../firebaseConfig';
 import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 
-
 const formatValue = (value) => {
   if (value === null || value === undefined) return 'N/A';
   if (typeof value === 'object') {
@@ -241,7 +240,7 @@ const ProfileScreen = ({ navigation }) => {
   if (loading) {
     return (
       <View style={styles.container}>
-        <ActivityIndicator size="large" color="#ffbe00" />
+        <ActivityIndicator size="large" color="#b51f28" />
         <Text style={styles.loadingText}>Cargando datos del usuario...</Text>
       </View>
     );
@@ -263,19 +262,21 @@ const ProfileScreen = ({ navigation }) => {
         {showMenu && (
           <View style={styles.menuContainer}>
             <View style={styles.menu}>
-              <TouchableOpacity
-                style={[styles.menuItem, styles.deleteAccountItem]}
-                onPress={handleDeleteAccount}
-              >
-                <Text style={[styles.menuText, styles.deleteAccountText]}>Eliminar Cuenta</Text>
-              </TouchableOpacity>
+
               <TouchableOpacity
                 style={styles.menuItem}
-                onPress={() => {
-                  setShowMenu(false);
-                  auth.signOut();
-                  navigation.navigate('Login');
-                }}
+              onPress={() => {
+                    setShowMenu(false);
+                    auth.signOut().then(() => {
+                      // Pequeño retraso para asegurar que el navigator esté listo
+                      setTimeout(() => {
+                        navigation.reset({
+                          index: 0,
+                          routes: [{ name: 'Login' }],
+                        });
+                      }, 100); // 100ms es suficiente
+                    });
+                  }}
               >
                 <Text style={styles.menuText}>Cerrar Sesión</Text>
               </TouchableOpacity>
@@ -356,12 +357,7 @@ const ProfileScreen = ({ navigation }) => {
                 >
                   <Text style={styles.buttonText}>Pagos</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.deleteButton]}
-                  onPress={() => handleDeletePlayer(cheerleader.id, true)}
-                >
-                  <Text style={styles.buttonText}>Eliminar</Text>
-                </TouchableOpacity>
+
               </View>
             </View>
           ))
@@ -531,7 +527,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   pagosButton: {
-    backgroundColor: '#ffbe00',
+    backgroundColor: '#b51f28',
   },
   equipmentButton: {
     backgroundColor: '#2c3e50',
@@ -555,7 +551,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 30,
     right: 30,
-    backgroundColor: '#ffbe00',
+    backgroundColor: '#b51f28',
     borderRadius: 30,
     paddingHorizontal: 20,
     paddingVertical: 15,
@@ -592,7 +588,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   retryButton: {
-    backgroundColor: '#ffbe00',
+    backgroundColor: '#b51f28',
     padding: 12,
     borderRadius: 5,
     width: '100%',
