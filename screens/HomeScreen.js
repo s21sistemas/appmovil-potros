@@ -7,20 +7,21 @@ import {
 import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import Svg, { Path } from 'react-native-svg';
-import { getStorage, ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import Svg, { Path, Rect } from 'react-native-svg';
+import SignatureCanvas from 'react-native-signature-canvas';
+import { getStorage, ref, uploadBytesResumable, getDownloadURL, uploadString } from 'firebase/storage';
 import { getFirestore, collection, addDoc, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 
-import { app } from '../firebaseConfig'; 
+import { app, storage as firebaseStorage, auth as firebaseAuth, db as firebaseDB } from '../firebaseConfig';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 
 // Configuración de Firebase
 //b51f28
-const auth = getAuth(app);
-const storage = getStorage(app);
-const db = getFirestore(app);
+const auth = firebaseAuth;
+const storage = firebaseStorage;
+const db = firebaseDB;
 
 const HomeScreen = ({ navigation }) => {
   const [currentStep, setCurrentStep] = useState(0);
@@ -42,7 +43,7 @@ const HomeScreen = ({ navigation }) => {
     peso: '',
     tipo_inscripcion: '',
     foto_jugador: null,
-    firma: [],
+    firma: '',
     activo: 'no activo',
     numero_mfl: '000000',
     documentos: {
@@ -159,6 +160,50 @@ const safeUploadFile = async ({ uri, name, folder, type = null }) => {
   }
 };
 
+const uploadBase64Image = async (base64String, fileName, folder) => {
+  try {
+    console.log(`Subiendo imagen base64: ${fileName} a ${folder}`);
+    
+    // Convertir base64 a blob
+    const response = await fetch(base64String);
+    const blob = await response.blob();
+    
+    const fullPath = `${folder}/${Date.now()}_${fileName}`;
+    const storageRef = ref(storage, fullPath);
+    
+    const uploadTask = uploadBytesResumable(storageRef, blob, { 
+      contentType: 'image/png' 
+    });
+    
+    return new Promise((resolve, reject) => {
+      uploadTask.on(
+        'state_changed',
+        (snapshot) => {
+          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          setUploadProgress(prev => ({ ...prev, [folder]: progress }));
+        },
+        (error) => {
+          console.error('Error durante la subida de base64:', error);
+          reject(error);
+        },
+        async () => {
+          try {
+            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+            console.log(`Imagen base64 subida con éxito: ${downloadURL}`);
+            resolve(downloadURL);
+          } catch (e) {
+            console.error('Error al obtener URL de descarga:', e);
+            reject(e);
+          }
+        }
+      );
+    });
+    
+  } catch (error) {
+    console.error('Error en uploadBase64Image:', error);
+    throw error;
+  }
+};
 
   const validateForm = () => {
     const newErrors = {};
@@ -180,7 +225,16 @@ const safeUploadFile = async ({ uri, name, folder, type = null }) => {
         if (!formData.curp || formData.curp.length !== 18) newErrors.curp = 'CURP debe tener 18 caracteres';
         break;
       case 'FirmaFotoForm':
-        if (formData.firma.length === 0) newErrors.firma = 'Captura tu firma';
+
+        
+        // Validación unificada para web y móvil (ambos usan base64)
+        if (!formData.firma || formData.firma === '' || !formData.firma.startsWith('data:image')) {
+          newErrors.firma = 'Captura tu firma';
+
+        } else {
+
+        }
+        
         if (!formData.foto_jugador) newErrors.foto_jugador = 'Sube una foto del jugador';
         break;
 
@@ -243,7 +297,6 @@ const safeUploadFile = async ({ uri, name, folder, type = null }) => {
   }
 };
   
-
   const handleSelectFile = async (field) => {
     try {
       let result;
@@ -322,6 +375,10 @@ const handleSubmit = async () => {
 
   setLoading(true);
 
+  // Verificar autenticación detallada
+const user = auth.currentUser;
+
+
   try {
     // 1. Verificar autenticación
     const user = auth.currentUser;
@@ -359,18 +416,8 @@ const handleSubmit = async () => {
     }
 
     // 4. Subir firma si existe
-    let firmaURL = null;
-    if (formData.firma.length > 0) {
-      setCurrentUpload('Firma');
-      const signatureImage = await captureSignature();
-      if (signatureImage) {
-        firmaURL = await safeUploadFile({
-          uri: signatureImage,
-          name: 'firma.png',
-          folder: 'firmas',
-          type: 'image/png'
-        });
-      }
+    if (formData.firma && formData.firma !== '') {
+      firmaURL = formData.firma; // Guardar como base64
     }
 
     // 5. Obtener temporada activa
@@ -454,9 +501,16 @@ const handleSubmit = async () => {
       })
     };
 
+
+
     // 7. Guardar en Firestore
     const coleccion = formData.tipo_inscripcion === 'porrista' ? 'porristas' : 'jugadores';
+
+
+
     const docRef = await addDoc(collection(db, coleccion), datosRegistro);
+
+
 
     // 8. Procesar pagos
     await processPayments(docRef.id, formData, temporadaActiva);
@@ -470,7 +524,19 @@ const handleSubmit = async () => {
 
   } catch (error) {
     console.error('Error completo en handleSubmit:', error);
-    Alert.alert('Error', error.message || 'Ocurrió un error al completar el registro');
+    console.error('Error message:', error.message);
+    console.error('Error code:', error.code);
+    console.error('Error stack:', error.stack);
+    
+    let errorMessage = 'Ocurrió un error al completar el registro';
+    
+    if (error.message.includes('Network request failed')) {
+      errorMessage = 'Error de conexión. Verifica tu internet y que Firebase esté configurado correctamente.';
+    } else if (error.code) {
+      errorMessage = `Error de Firebase: ${error.code} - ${error.message}`;
+    }
+    
+    Alert.alert('Error', errorMessage);
   } finally {
     setLoading(false);
     setCurrentUpload(null);
@@ -479,17 +545,20 @@ const handleSubmit = async () => {
 
 
 
-  
-  // Procesar pagos (separado para mejor organización)
-// Modifica la llamada a processPayments en handleSubmit:
-
-
 // Y actualiza la función processPayments:
 const processPayments = async (playerId, formData, temporadaActiva) => {
   try {
     const costosCollection = formData.tipo_inscripcion === 'porrista' ? 'costos-porrista' : 'costos-jugador';
-    const costosQuery = collection(db, costosCollection);
-    const costosSnapshot = await getDocs(costosQuery);
+      const costosQuery = query(
+        collection(db, costosCollection),
+        where('temporadaId', '==', temporadaActiva),
+         where('categoria', '==', formData.categoria)
+      );
+      
+      const costosSnapshot = await getDocs(costosQuery);
+      console.log(costosCollection);
+           console.log(costosQuery);
+      console.log(costosSnapshot);
     
     if (costosSnapshot.empty) {
       throw new Error(`No se encontraron costos configurados para ${formData.tipo_inscripcion}`);
@@ -497,6 +566,8 @@ const processPayments = async (playerId, formData, temporadaActiva) => {
 
     const costosDoc = costosSnapshot.docs[0];
     const costosData = costosDoc.data();
+    console.log('costos encontrados para la categoria')
+    console.log(costosData);
     const parseCost = (value) => parseInt(value || '0', 10);
     
     const nombreCompleto = `${formData.nombre} ${formData.apellido_p} ${formData.apellido_m}`;
@@ -545,13 +616,10 @@ const processPayments = async (playerId, formData, temporadaActiva) => {
       await addDoc(collection(db, 'pagos_porristas'), pagosPorrista);
     } else {
       const inscripcion = parseCost(costosData.inscripcion);
-      const coaching = parseCost(costosData.coaching);
-      const tunel = parseCost(costosData.tunel);
-      const botiquin = parseCost(costosData.botiquin);
-      const equipamiento = parseCost(costosData.equipamiento);
+      const equipamiento = parseCost(costosData.primera_jornada);
       const pesaje = parseCost(costosData.pesaje);
       
-      const total = inscripcion + coaching + tunel + botiquin + equipamiento + pesaje;
+      const total = inscripcion + equipamiento + pesaje;
 
       const pagosJugador = {
         jugadorId: playerId, // Usamos el playerId que recibimos como parámetro
@@ -564,7 +632,7 @@ const processPayments = async (playerId, formData, temporadaActiva) => {
             descuento: '0',
             estatus: 'pendiente',
             fecha_pago: null,
-            submonto: 0,
+            submonto: inscripcion,
             monto: inscripcion,
             prorroga: false,
             fecha_limite: fechaLimite.toISOString().split('T')[0],
@@ -574,10 +642,10 @@ const processPayments = async (playerId, formData, temporadaActiva) => {
             total_abonado: 0
           },
           {
-            tipo: 'Equipamiento',
+            tipo: 'Primera jornada',
             estatus: 'pendiente',
             fecha_pago: null,
-            fecha_limite: null,
+            fecha_limite: fechaLimite.toISOString().split('T')[0],
             monto: equipamiento,
             metodo_pago: null,
             abono: 'NO',
@@ -589,7 +657,7 @@ const processPayments = async (playerId, formData, temporadaActiva) => {
             estatus: 'pendiente',
             fecha_pago: null,
             monto: pesaje,
-            metodo_pago: null,
+            metodo_pago: fechaLimite.toISOString().split('T')[0],
             abono: 'NO',
             abonos: [],
             total_abonado: 0
@@ -599,7 +667,7 @@ const processPayments = async (playerId, formData, temporadaActiva) => {
         monto_total_pendiente: total,
         monto_total: total,
         fecha_registro: fechaActual.toISOString().split('T')[0],
-        temporadaId: temporadaActiva?.value || costosData.temporadaId
+        temporadaId: temporadaActiva|| costosData.temporadaId
       };
       await addDoc(collection(db, 'pagos_jugadores'), pagosJugador);
     }
@@ -639,18 +707,19 @@ const processPayments = async (playerId, formData, temporadaActiva) => {
     }
   };
 
+
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top', 'left', 'right']} style={styles.safeArea}>
       <KeyboardAvoidingView
               behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
               style={{ flex: 1 }}
               keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
             >
-
           <Animated.View style={{ opacity: fadeAnim, flex: 1 }}>
             {renderForm()}
           </Animated.View>
-          {currentStep > 0 && currentStep !== steps.length - 1 && (
+          {currentStep > 0 && currentStep !== steps.length && (
             <TouchableOpacity style={styles.backButton} onPress={handlePreviousStep}>
               <Text style={styles.backButtonText}>Atrás</Text>
             </TouchableOpacity>
@@ -673,22 +742,24 @@ const processPayments = async (playerId, formData, temporadaActiva) => {
 // Componente GeneroForm
 const GeneroForm = ({ formData, setFormData, errors, onNext }) => {
   return (
-    <View style={styles.formContainer}>
-      <Text style={styles.title}>¿Registrarás a un hombre o mujer?</Text>
-      <Picker
-        selectedValue={formData.sexo}
-        onValueChange={(itemValue) => setFormData({ ...formData, sexo: itemValue })}
-        style={styles.picker}
-      >
-        <Picker.Item label="Selecciona un género" value="" />
-        <Picker.Item label="Hombre" value="hombre" />
-        <Picker.Item label="Mujer" value="mujer" />
-      </Picker>
-      {errors.sexo && <Text style={styles.errorText}>{errors.sexo}</Text>}
-      <TouchableOpacity style={styles.button} onPress={onNext}>
-        <Text style={styles.buttonText}>Continuar</Text>
-      </TouchableOpacity>
-    </View>
+
+          <View style={styles.formContainer}>
+            <Text style={styles.title}>¿Registrarás a un hombre o mujer?</Text>
+            <Picker
+              selectedValue={formData.sexo}
+              onValueChange={(itemValue) => setFormData({ ...formData, sexo: itemValue })}
+              style={styles.picker}
+            >
+              <Picker.Item label="Selecciona un género" value="" />
+              <Picker.Item label="Hombre" value="hombre" />
+              <Picker.Item label="Mujer" value="mujer" />
+            </Picker>
+            {errors.sexo && <Text style={styles.errorText}>{errors.sexo}</Text>}
+            <TouchableOpacity style={styles.button} onPress={onNext}>
+              <Text style={styles.buttonText}>Continuar</Text>
+            </TouchableOpacity>
+          </View>
+      
   );
 };
 
@@ -821,93 +892,91 @@ const TipoInscripcionForm = ({ formData, setFormData, errors, onNext, navigation
   };
 
   return (
-    <View style={styles.formContainer}>
-      <Text style={styles.title}>Tipo de Inscripción</Text>
-      <Picker
-        selectedValue={formData.tipo_inscripcion}
-        onValueChange={handleTipoInscripcionChange}
-        style={styles.picker}
-      >
-        {tipoInscripcionOptions.map((option, index) => (
-          <Picker.Item key={index} label={option.label} value={option.value} />
-        ))}
-      </Picker>
-      {errors.tipo_inscripcion && <Text style={styles.errorText}>{errors.tipo_inscripcion}</Text>}
+          <View style={styles.formContainer}>
+            <Text style={styles.title}>Tipo de Inscripción</Text>
+            <Picker
+              selectedValue={formData.tipo_inscripcion}
+              onValueChange={handleTipoInscripcionChange}
+              style={styles.picker}
+            >
+              {tipoInscripcionOptions.map((option, index) => (
+                <Picker.Item key={index} label={option.label} value={option.value} />
+              ))}
+            </Picker>
+            {errors.tipo_inscripcion && <Text style={styles.errorText}>{errors.tipo_inscripcion}</Text>}
 
-      {formData.tipo_inscripcion === 'reinscripcion' && (
-        <View style={styles.reinscripcionContainer}>
-          <Text style={styles.subtitle}>Buscar jugador/porrista para reinscribir</Text>
-          
-          <TextInput
-            style={styles.input}
-            placeholder="Ingresa CURP (18 caracteres) o MFL (6 dígitos)"
-            value={searchTerm}
-            onChangeText={setSearchTerm}
-            maxLength={18}
-            autoCapitalize="characters"
-             placeholderTextColor="#444"
-          />
-          
-          {searchError && <Text style={styles.errorText}>{searchError}</Text>}
-          
-          <TouchableOpacity 
-            style={styles.button} 
-            onPress={searchPlayer}
-            disabled={loadingSearch}
-          >
-            {loadingSearch ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.buttonText}>Buscar</Text>
-            )}
-          </TouchableOpacity>
-
-          {foundPlayer && (
-            <View style={styles.playerInfoContainer}>
-              <Text style={styles.playerInfoTitle}>Jugador encontrado:</Text>
-              
-              {foundPlayer.foto && (
-                <Image 
-                  source={{ uri: foundPlayer.foto }} 
-                  style={styles.playerImage}
+            {formData.tipo_inscripcion === 'reinscripcion' && (
+              <View style={styles.reinscripcionContainer}>
+                <Text style={styles.subtitle}>Buscar jugador/porrista para reinscribir</Text>
+                
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ingresa CURP (18 caracteres) o MFL (6 dígitos)"
+                  value={searchTerm}
+                  onChangeText={setSearchTerm}
+                  maxLength={18}
+                  autoCapitalize="characters"
                 />
-              )}
-              
-              <Text style={styles.playerInfoText}>
-                Nombre: {foundPlayer.nombre} {foundPlayer.apellido_p} {foundPlayer.apellido_m}
-              </Text>
-              <Text style={styles.playerInfoText}>CURP: {foundPlayer.curp}</Text>
-              <Text style={styles.playerInfoText}>MFL: {foundPlayer.numero_mfl || 'N/A'}</Text>
-              <Text style={styles.playerInfoText}>Estado actual: {foundPlayer.activo}</Text>
-              
-              <TouchableOpacity 
-                style={[styles.button, styles.reinscribirButton]}
-                onPress={reinscribirPlayer}
-                disabled={reinscribiendo}
-              >
-                {reinscribiendo ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.buttonText}>Reinscribir</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-      )}
+                
+                {searchError && <Text style={styles.errorText}>{searchError}</Text>}
+                
+                <TouchableOpacity 
+                  style={styles.button} 
+                  onPress={searchPlayer}
+                  disabled={loadingSearch}
+                >
+                  {loadingSearch ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.buttonText}>Buscar</Text>
+                  )}
+                </TouchableOpacity>
 
-      {formData.tipo_inscripcion !== 'reinscripcion' && (
-        <TouchableOpacity 
-          style={styles.button} 
-          onPress={onNext}
-        >
-          <Text style={styles.buttonText}>Continuar</Text>
-        </TouchableOpacity>
-      )}
-    </View>
+                {foundPlayer && (
+                  <View style={styles.playerInfoContainer}>
+                    <Text style={styles.playerInfoTitle}>Jugador encontrado:</Text>
+                    
+                    {foundPlayer.foto && (
+                      <Image 
+                        source={{ uri: foundPlayer.foto }} 
+                        style={styles.playerImage}
+                      />
+                    )}
+                    
+                    <Text style={styles.playerInfoText}>
+                      Nombre: {foundPlayer.nombre} {foundPlayer.apellido_p} {foundPlayer.apellido_m}
+                    </Text>
+                    <Text style={styles.playerInfoText}>CURP: {foundPlayer.curp}</Text>
+                    <Text style={styles.playerInfoText}>MFL: {foundPlayer.numero_mfl || 'N/A'}</Text>
+                    <Text style={styles.playerInfoText}>Estado actual: {foundPlayer.activo}</Text>
+                    
+                    <TouchableOpacity 
+                      style={[styles.button, styles.reinscribirButton]}
+                      onPress={reinscribirPlayer}
+                      disabled={reinscribiendo}
+                    >
+                      {reinscribiendo ? (
+                        <ActivityIndicator color="#fff" />
+                      ) : (
+                        <Text style={styles.buttonText}>Reinscribir</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {formData.tipo_inscripcion !== 'reinscripcion' && (
+              <TouchableOpacity 
+                style={styles.button} 
+                onPress={onNext}
+              >
+                <Text style={styles.buttonText}>Continuar</Text>
+              </TouchableOpacity>
+            )}
+          </View>
   );
 };
-
 
 // Componente DatosPersonalesForm
 const DatosPersonalesForm = ({ formData, setFormData, errors, onNext }) => {
@@ -1067,6 +1136,7 @@ useEffect(() => {
   };
 
   return (
+
     <ScrollView 
       style={styles.mainContent}
       contentContainerStyle={styles.scrollContent}
@@ -1083,7 +1153,6 @@ useEffect(() => {
           <TextInput
             style={styles.input}
             placeholder="Nombre del jugador(a)"
-             placeholderTextColor="#444"
             value={formData.nombre}
             onChangeText={(text) => setFormData({ ...formData, nombre: text })}
           />
@@ -1092,7 +1161,6 @@ useEffect(() => {
           <TextInput
             style={styles.input}
             placeholder="Apellido Paterno"
-             placeholderTextColor="#444"
             value={formData.apellido_p}
             onChangeText={(text) => setFormData({ ...formData, apellido_p: text })}
           />
@@ -1101,7 +1169,6 @@ useEffect(() => {
           <TextInput
             style={styles.input}
             placeholder="Apellido Materno"
-             placeholderTextColor="#444"
             value={formData.apellido_m}
             onChangeText={(text) => setFormData({ ...formData, apellido_m: text })}
           />
@@ -1176,7 +1243,6 @@ useEffect(() => {
           <TextInput
             style={styles.input}
             placeholder="Lugar de Nacimiento"
-             placeholderTextColor="#444"
             value={formData.lugar_nacimiento}
             onChangeText={(text) => setFormData({ ...formData, lugar_nacimiento: text })}
           />
@@ -1185,7 +1251,6 @@ useEffect(() => {
           <TextInput
             style={styles.input}
             placeholder="CURP (EN MAYUSCULAS)"
-             placeholderTextColor="#444"
             value={formData.curp}
             onChangeText={(text) => setFormData({ ...formData, curp: text.toUpperCase() })}
             maxLength={18}
@@ -1210,6 +1275,8 @@ useEffect(() => {
       </KeyboardAvoidingView> 
     </ScrollView>
   );
+
+
 };
 
 // Componente DatosContactoForm
@@ -1226,7 +1293,6 @@ const DatosContactoForm = ({ formData, setFormData, errors, onNext }) => {
         <TextInput
           style={styles.input}
           placeholder="Dirección"
-           placeholderTextColor="#444"
           value={formData.direccion}
           onChangeText={(text) => setFormData({ ...formData, direccion: text })}
         />
@@ -1234,7 +1300,6 @@ const DatosContactoForm = ({ formData, setFormData, errors, onNext }) => {
         <TextInput
           style={styles.input}
           placeholder="Teléfono"
-           placeholderTextColor="#444"
           value={formData.telefono}
           onChangeText={(text) => setFormData({ ...formData, telefono: text })}
           keyboardType="phone-pad"
@@ -1268,7 +1333,6 @@ const DatosEscolaresMedicosForm = ({ formData, setFormData, errors, onNext }) =>
       <TextInput
         style={styles.input}
         placeholder="Nombre de la Escuela"
-         placeholderTextColor="#444"
         value={formData.nombre_escuela}
         onChangeText={(text) => setFormData({ ...formData, nombre_escuela: text })}
       />
@@ -1276,7 +1340,6 @@ const DatosEscolaresMedicosForm = ({ formData, setFormData, errors, onNext }) =>
       <TextInput
         style={styles.input}
         placeholder="Alergias"
-         placeholderTextColor="#444"
         value={formData.alergias}
         onChangeText={(text) => setFormData({ ...formData, alergias: text })}
       />
@@ -1284,7 +1347,6 @@ const DatosEscolaresMedicosForm = ({ formData, setFormData, errors, onNext }) =>
       <TextInput
         style={styles.input}
         placeholder="Padecimientos"
-         placeholderTextColor="#444"
         value={formData.padecimientos}
         onChangeText={(text) => setFormData({ ...formData, padecimientos: text })}
       />
@@ -1292,7 +1354,6 @@ const DatosEscolaresMedicosForm = ({ formData, setFormData, errors, onNext }) =>
       <TextInput
         style={styles.input}
         placeholder="Peso (kg)"
-         placeholderTextColor="#444"
         value={formData.peso}
         onChangeText={(text) => setFormData({ ...formData, peso: text })}
         keyboardType="numeric"
@@ -1324,7 +1385,6 @@ const TransferenciaForm = ({ formData, setFormData, errors, onNext }) => {
       <TextInput
         style={styles.input}
         placeholder="Club de Origen"
-         placeholderTextColor="#444"
         value={formData.transferencia.club_anterior}
         onChangeText={(text) => handleChange('club_anterior', text)}
       />
@@ -1332,7 +1392,6 @@ const TransferenciaForm = ({ formData, setFormData, errors, onNext }) => {
       <TextInput
         style={styles.input}
         placeholder="Temporadas Jugadas"
-         placeholderTextColor="#444"
         value={formData.transferencia.temporadas_jugadas}
         onChangeText={(text) => handleChange('temporadas_jugadas', text)}
       />
@@ -1358,12 +1417,13 @@ const TransferenciaForm = ({ formData, setFormData, errors, onNext }) => {
 
 // Componente FirmaFotoForm
 const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) => {
+  const [hasCameraPermission, setHasCameraPermission] = useState(null);
+  const [hasGalleryPermission, setHasGalleryPermission] = useState(null);
+  
+  // Estados para la firma en web (SVG)
   const [paths, setPaths] = useState([]);
   const [currentPath, setCurrentPath] = useState([]);
   const [isDrawing, setIsDrawing] = useState(false);
-  const [hasCameraPermission, setHasCameraPermission] = useState(null);
-  const [hasGalleryPermission, setHasGalleryPermission] = useState(null);
-  const [scrollEnabled, setScrollEnabled] = useState(true);
 
   useEffect(() => {
     (async () => {
@@ -1374,11 +1434,108 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
     })();
   }, []);
 
+  // Función para convertir SVG a Base64 (Web)
+  const convertSvgToBase64 = async () => {
+    try {
+      // Crear un SVG string con todos los paths
+      const svgWidth = 300;
+      const svgHeight = 150;
+      
+      let pathElements = '';
+      paths.forEach((path, index) => {
+        if (path.length > 0) {
+          const pathData = path
+            .map((point, pointIndex) => `${pointIndex === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
+            .join(' ');
+          pathElements += `<path d="${pathData}" stroke="black" stroke-width="3" fill="none"/>`;
+        }
+      });
+
+      const svgString = `
+        <svg width="${svgWidth}" height="${svgHeight}" xmlns="http://www.w3.org/2000/svg">
+          <rect width="100%" height="100%" fill="white"/>
+          ${pathElements}
+        </svg>
+      `;
+
+      // Convertir SVG a Canvas y luego a Base64
+      return new Promise((resolve) => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const img = new Image();
+        
+        canvas.width = svgWidth;
+        canvas.height = svgHeight;
+        
+        // Fondo blanco
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, svgWidth, svgHeight);
+        
+        const svgBlob = new Blob([svgString], { type: 'image/svg+xml' });
+        const url = URL.createObjectURL(svgBlob);
+        
+        img.onload = () => {
+          ctx.drawImage(img, 0, 0);
+          const base64 = canvas.toDataURL('image/png');
+          URL.revokeObjectURL(url);
+          resolve(base64);
+        };
+        
+        img.src = url;
+      });
+    } catch (error) {
+      console.error('Error convirtiendo SVG a Base64:', error);
+      return null;
+    }
+  };
+
+  // Funciones para React Native (SignatureCanvas)
+  const handleConfirmSignature = () => {
+    console.log('=== INTENTANDO CAPTURAR FIRMA ===');
+    
+    if (signatureRef.current) {
+      signatureRef.current.readSignature();
+    } else {
+      console.log('ERROR: signatureRef no está disponible');
+      Alert.alert('Error', 'No se pudo acceder al área de firma');
+    }
+  };
+
+  const handleClearSignature = () => {
+    console.log('=== LIMPIANDO FIRMA ===');
+    
+    if (Platform.OS === 'web') {
+      clearCanvasWeb();
+    } else {
+      if (signatureRef.current) {
+        signatureRef.current.clearSignature();
+        setFormData(prev => ({ ...prev, firma: '' }));
+      } else {
+        console.log('ERROR: signatureRef no está disponible para limpiar');
+      }
+    }
+  };
+
+  const handleSignatureOK = (signature) => {
+    console.log('=== FIRMA CAPTURADA EXITOSAMENTE (MÓVIL) ===');
+    console.log('Signature length:', signature.length);
+    console.log('Signature preview:', signature.substring(0, 50) + '...');
+    
+    setFormData(prev => ({ ...prev, firma: signature }));
+    Alert.alert('Éxito', 'Firma capturada correctamente');
+  };
+
+  const handleSignatureError = (error) => {
+    console.log('=== ERROR EN FIRMA ===');
+    console.log('Error:', error);
+    Alert.alert('Error', 'No se pudo capturar la firma. Asegúrate de haber dibujado algo.');
+  };
+
+  // Funciones para Web (SVG)
   const panResponder = PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
     onPanResponderGrant: (event, gestureState) => {
-      setScrollEnabled(false);
       const { locationX, locationY } = event.nativeEvent;
       setIsDrawing(true);
       setCurrentPath([{ x: locationX, y: locationY }]);
@@ -1388,12 +1545,20 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
       const { locationX, locationY } = event.nativeEvent;
       setCurrentPath((prevPath) => [...prevPath, { x: locationX, y: locationY }]);
     },
-    onPanResponderRelease: () => {
+    onPanResponderRelease: async () => {
       setIsDrawing(false);
-      setPaths((prevPaths) => [...prevPaths, currentPath]);
+      const newPaths = [...paths, currentPath];
+      setPaths(newPaths);
       setCurrentPath([]);
-      setFormData(prev => ({ ...prev, firma: [...prev.firma, ...currentPath] }));
-      setScrollEnabled(true);
+      
+      // Convertir a base64 automáticamente después de dibujar
+      if (newPaths.length > 0) {
+        const base64 = await convertSvgToBase64();
+        if (base64) {
+          console.log('=== FIRMA CAPTURADA EXITOSAMENTE (WEB) ===');
+          setFormData(prev => ({ ...prev, firma: base64 }));
+        }
+      }
     },
   });
 
@@ -1404,41 +1569,58 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
       .join(' ');
   };
 
-  const clearCanvas = () => {
+  const clearCanvasWeb = () => {
     setPaths([]);
     setCurrentPath([]);
-    setFormData(prev => ({ ...prev, firma: [] }));
+    setFormData(prev => ({ ...prev, firma: '' }));
   };
 
- const handleSelectFoto = async () => {
-  if (!hasGalleryPermission) {
-    Alert.alert('Permisos denegados', 'Necesitas permitir el acceso a la galería para seleccionar una imagen. Cierra la app y ve a ""Configuración> Apps > Club Potros y otorga los permisos');
-    return;
-  }
-
-  try {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 0.3,
-    });
-
-    if (!result.canceled && result.assets && result.assets.length > 0) {
-      const selectedImage = result.assets[0];
-      setFormData(prev => ({
-        ...prev,
-        foto_jugador: {
-          uri: selectedImage.uri,
-          name: `foto_jugador_${Date.now()}.jpg`,
-          type: selectedImage.mimeType || 'image/jpeg'
-        }
-      }));
+  // Función para confirmar firma en web
+  const handleConfirmSignatureWeb = async () => {
+    if (paths.length === 0) {
+      Alert.alert('Error', 'Por favor dibuja tu firma antes de confirmar');
+      return;
     }
-  } catch (error) {
-    console.error('Error al seleccionar la foto:', error);
-    Alert.alert('Error', 'No se pudo seleccionar la imagen');
-  }
-};
+
+    const base64 = await convertSvgToBase64();
+    if (base64) {
+      console.log('=== FIRMA CONFIRMADA EN WEB ===');
+      setFormData(prev => ({ ...prev, firma: base64 }));
+      Alert.alert('Éxito', 'Firma capturada correctamente');
+    } else {
+      Alert.alert('Error', 'No se pudo procesar la firma');
+    }
+  };
+
+  const handleSelectFoto = async () => {
+    if (!hasGalleryPermission) {
+      Alert.alert('Permisos denegados', 'Necesitas permitir el acceso a la galería para seleccionar una imagen. Cierra la app y ve a "Configuración> Apps > Club Potros" y otorga los permisos');
+      return;
+    }
+
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.3,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const selectedImage = result.assets[0];
+        setFormData(prev => ({
+          ...prev,
+          foto_jugador: {
+            uri: selectedImage.uri,
+            name: `foto_jugador_${Date.now()}.jpg`,
+            type: selectedImage.mimeType || 'image/jpeg'
+          }
+        }));
+      }
+    } catch (error) {
+      console.error('Error al seleccionar la foto:', error);
+      Alert.alert('Error', 'No se pudo seleccionar la imagen');
+    }
+  };
 
   const handleTakePhoto = async () => {
     if (!hasCameraPermission) {
@@ -1463,7 +1645,6 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
             type: 'image/jpeg'
           }
         }));
-
       }
     } catch (error) {
       console.error('Error al tomar la foto:', error);
@@ -1472,43 +1653,137 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
 
   return (
     <ScrollView 
-            style={styles.mainContent}
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-            scrollEnabled={Platform.OS === 'ios' || Platform.OS === 'web' ? scrollEnabled : true}
-          >
+      style={styles.mainContent}
+      contentContainerStyle={styles.scrollContent}
+      showsVerticalScrollIndicator={false}
+    >
       <View style={styles.formContainer}>
-        <Text style={styles.title}>Firma y Foto </Text>
+        <Text style={styles.title}>Firma y Foto</Text>
         
         <Text style={styles.sectionTitle}>Firma:</Text>
-        <View style={styles.signatureContainer} {...panResponder.panHandlers}>
-          <Svg style={styles.canvas} ref={signatureRef}>
-            {paths.map((path, index) => (
-              <Path
-                key={index}
-                d={getPathData(path)}
-                stroke="black"
-                strokeWidth={3}
-                fill="none"
+        
+        {Platform.OS !== 'web' ? (
+          // Para React Native - usar SignatureCanvas
+          <>
+            <View style={styles.signatureContainer}>
+              <SignatureCanvas
+                ref={signatureRef}
+                onOK={handleSignatureOK}
+                onEmpty={handleSignatureError}
+                onClear={() => console.log('Firma limpiada por SignatureCanvas')}
+                descriptionText="Dibuje su firma aquí"
+                clearText="Limpiar"
+                confirmText="Confirmar"
+                imageType="image/png"
+                style={styles.signature}
+                backgroundColor="white"
+                penColor="black"
+                minWidth={2}
+                maxWidth={4}
+                trimWhiteSpace={true}
+                autoClear={false}
+                webStyle={`
+                  .m-signature-pad {
+                    box-shadow: none;
+                    border: none;
+                    margin: 0;
+                  }
+                  .m-signature-pad--body {
+                    border: none;
+                    margin: 0;
+                  }
+                  .m-signature-pad--footer {
+                    display: none;
+                  }
+                  canvas {
+                    width: 100% !important;
+                    height: 180px !important;
+                  }
+                `}
               />
-            ))}
-            <Path
-              d={getPathData(currentPath)}
-              stroke="black"
-              strokeWidth={3}
-              fill="none"
-            />
-          </Svg>
-        </View>
-        <TouchableOpacity style={styles.secondaryButton} onPress={clearCanvas}>
-          <Text style={styles.secondaryButtonText}>Limpiar Firma</Text>
-        </TouchableOpacity>
+            </View>
+            
+            <View style={styles.signatureButtonsContainer}>
+              <TouchableOpacity 
+                style={styles.signatureButton} 
+                onPress={handleConfirmSignature}
+              >
+                <Text style={styles.signatureButtonText}>Confirmar Firma</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.signatureButton, styles.clearButton]} 
+                onPress={handleClearSignature}
+              >
+                <Text style={styles.signatureButtonText}>Limpiar</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        ) : (
+          // Para Web - usar SVG con PanResponder
+          <>
+            <View style={styles.signatureContainer} {...panResponder.panHandlers}>
+              <Svg style={styles.canvas} width={300} height={150}>
+                <Rect width="100%" height="100%" fill="white" stroke="#ddd" strokeWidth={1} />
+                {paths.map((path, index) => (
+                  <Path
+                    key={index}
+                    d={getPathData(path)}
+                    stroke="black"
+                    strokeWidth={3}
+                    fill="none"
+                  />
+                ))}
+                <Path
+                  d={getPathData(currentPath)}
+                  stroke="black"
+                  strokeWidth={3}
+                  fill="none"
+                />
+              </Svg>
+            </View>
+            
+            <View style={styles.signatureButtonsContainer}>
+              <TouchableOpacity 
+                style={styles.signatureButton} 
+                onPress={handleConfirmSignatureWeb}
+              >
+                <Text style={styles.signatureButtonText}>Confirmar Firma</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.signatureButton, styles.clearButton]} 
+                onPress={handleClearSignature}
+              >
+                <Text style={styles.signatureButtonText}>Limpiar</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
+
+        {/* Mostrar estado de la firma */}
+        {formData.firma && formData.firma !== '' && (
+          <>
+            <Text style={styles.signatureStatus}>
+              ✅ Firma capturada correctamente
+            </Text>
+            {/* Preview de la firma en web */}
+            {Platform.OS === 'web' && formData.firma.startsWith('data:image') && (
+              <Image
+                source={{ uri: formData.firma }}
+                style={styles.signaturePreview}
+                resizeMode="contain"
+              />
+            )}
+          </>
+        )}
+        
         {errors.firma && <Text style={styles.errorText}>{errors.firma}</Text>}
         
         <Text style={styles.sectionTitle}>Foto del Jugador:</Text>
         {formData.foto_jugador && (
           <Image
-            source={{ uri: formData.foto_jugador.uri }} // Accede a la propiedad uri del objeto
+            source={{ uri: formData.foto_jugador.uri }}
             style={styles.imagePreview}
           />
         )}
@@ -1517,7 +1792,7 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
             <Text style={styles.secondaryButtonText}>Tomar Foto</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.secondaryButton} onPress={handleSelectFoto}>
-            <Text style={styles.secondaryButtonText}>Seleccionar de Galería</Text>
+            <Text style={styles.secondaryButtonText}>Ver Galería</Text>
           </TouchableOpacity>
         </View>
         {errors.foto_jugador && <Text style={styles.errorText}>{errors.foto_jugador}</Text>}
@@ -1560,6 +1835,7 @@ const DocumentacionForm = ({ formData, setFormData, onSubmit, uploadProgress, cu
   };
 
   return (
+
     <ScrollView 
       style={styles.mainContent}
       contentContainerStyle={styles.scrollContent}
@@ -1648,19 +1924,54 @@ const DocumentacionForm = ({ formData, setFormData, onSubmit, uploadProgress, cu
         </TouchableOpacity>
       </View>
     </ScrollView>
+
   );
 };
 
 // Estilos
 const styles = StyleSheet.create({
+
+
+  safeArea: {
+    flex: 1,
+    paddingTop:50,
+    backgroundColor: '#f5f5f5',
+    ...Platform.select({
+      web: { minHeight: '100vh' }
+    })
+  },
   container: {
     flex: 1,
-    paddingTop:35,
-    backgroundColor: '#f5f5f5',
+    padding: 16,
+    ...Platform.select({
+      web: {
+        display: 'flex',
+        flexDirection: 'column',
+        height: '150%',
+        overflow: 'hidden'
+      }
+    })
   },
-  scrollContainer: {
-    flexGrow: 1,
-    padding: 20,
+  mainContent: {
+    flex: 1,
+    zIndex: 1,
+    paddingHorizontal: 15,
+    ...Platform.select({
+      web: {
+        maxHeight: '150%',
+        overflowY: 'auto',
+        WebkitOverflowScrolling: 'touch'
+      }
+    })
+  },
+  scrollContent: {
+    paddingBottom: 100,
+    ...Platform.select({
+      web: {
+        minHeight: '150%',
+        flexGrow: 1
+      }
+    })
   },
   formContainer: {
     backgroundColor: '#fff',
@@ -1687,13 +1998,12 @@ const styles = StyleSheet.create({
     color: '#444',
   },
   input: {
-    height: 50,
     borderWidth: 1,
-    borderColor: '#DDD',
-    borderRadius: 25,
-    paddingHorizontal: 20,
-    marginBottom: 10,
-    backgroundColor: '#FAFAFA',
+    borderColor: '#ccc',
+    borderRadius: 5,
+    padding: 15,
+    marginBottom: 15,
+    backgroundColor: '#fff',
     fontSize: 16,
   },
   picker: {
@@ -1702,7 +2012,6 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     marginBottom: 15,
     backgroundColor: '#fff',
-    color: '#000',
   },
   button: {
     backgroundColor: '#b51f28',
@@ -1718,16 +2027,18 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     backgroundColor: '#b51f28',
-    padding: 12,
+    padding: 10,
     borderRadius: 5,
     alignItems: 'center',
     marginVertical: 10,
     borderWidth: 1,
     borderColor: '#b51f28',
+    maxWidth: 120,
   },
   secondaryButtonText: {
     color: '#fff',
     fontWeight: '500',
+
   },
   submitButton: {
     backgroundColor: '#b51f28',
@@ -1781,6 +2092,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 15,
+    
   },
   linkText: {
     color: '#007BFF',
@@ -1979,16 +2291,9 @@ const styles = StyleSheet.create({
     color: '#495057',
     flex: 1,
   },
-    mainContent: {
-    flex: 1,
-    zIndex: 1,
-    paddingLeft: 10,
-    paddingRight: 10,
-  },
-  scrollContent: {
-    paddingBottom: 100,
-  },
-   declarationContainer: {
+    
+  
+  declarationContainer: {
     marginTop: 20,
     marginBottom: 20,
     padding: 15,
@@ -2003,6 +2308,60 @@ const styles = StyleSheet.create({
     color: '#333',
     marginLeft: 10,
   },
+
+signaturePreview: {
+  width: 200,
+  height: 100,
+  marginTop: 10,
+  marginBottom: 10,
+  borderWidth: 1,
+  borderColor: '#ddd',
+  borderRadius: 8,
+  alignSelf: 'center',
+},
+
+canvas: {
+  width: 300,
+  height: 150,
+  backgroundColor: 'white',
+  borderWidth: 1,
+  borderColor: '#ddd',
+  borderRadius: 8,
+},
+
+signatureButtonsContainer: {
+  flexDirection: 'row',
+  justifyContent: 'space-around',
+  marginTop: 10,
+  marginBottom: 15,
+},
+
+signatureButton: {
+  backgroundColor: '#b51f28',
+  paddingHorizontal: 15,
+  paddingVertical: 10,
+  borderRadius: 5,
+  minWidth: 120,
+  alignItems: 'center',
+},
+
+clearButton: {
+  backgroundColor: '#dc3545',
+},
+
+signatureButtonText: {
+  color: '#fff',
+  fontWeight: 'bold',
+  fontSize: 14,
+},
+
+signatureStatus: {
+  color: '#28a745',
+  fontWeight: 'bold',
+  textAlign: 'center',
+  marginTop: 10,
+  fontSize: 16,
+},
 });
 
 export default HomeScreen;

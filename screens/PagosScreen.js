@@ -706,14 +706,10 @@ const generatePDF = async (pago) => {
           <Text style={styles.sectionTitle}>Detalle de Pagos</Text>
 
           {pagoData.pagos.map((pago, index) => { 
-            const esCoaching = pago.tipo.toLowerCase().includes("coaching");
+            
+            
               let estatusMostrado = pago.estatus; 
 
-              if (esCoaching && pago.fecha_pago) {
-                estatusMostrado = checkSemanaPago(pago.fecha_pago) ? 
-                  (pago.total_restante > 0 ? "pendiente" : "pagado") : 
-                  "Cubierto esta semana";
-              }
 
             return (
               <View
@@ -807,7 +803,7 @@ const generatePDF = async (pago) => {
                 {(pago.descuento && pago.descuento !== "0") && (
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Descuento aplicado:</Text>
-                    <Text style={styles.detailValue}>{pago.descuento}%</Text>
+                    <Text style={styles.detailValue}>{pago.descuento}</Text>
                   </View>
                 )}
 
@@ -843,10 +839,12 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     width: "100%",
+
   },
   scrollContent: {
     padding: 20,
     paddingBottom: 40,
+
   },
   header: {
     flexDirection: "row",

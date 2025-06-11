@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { initializeFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage'; // AGREGAR ESTA LÍNEA
 
 const firebaseConfig = {
   apiKey: "AIzaSyAxQEbSBtaSwO76yNhHpGst63jWZkqkzxE",
@@ -23,4 +24,7 @@ const db = initializeFirestore(app, {
   useFetchStreams: false,
 });
 
-export { app, auth, db };
+// Storage - AGREGAR ESTAS LÍNEAS
+const storage = getStorage(app);
+
+export { app, auth, db, storage }; // AGREGAR storage AL EXPORT
