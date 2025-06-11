@@ -51,7 +51,7 @@ const AvisosScreen = ({ navigation }) => {
 
     const q = query(
       collection(db, 'alertas'),
-      where('uid', '==', user.uid) // Usamos user.uid en lugar del objeto user
+      where('uid', '==', user.uid) // <= cambio: buscamos por uid en lugar de tutorId 
     );
 
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
@@ -230,7 +230,7 @@ const AvisosScreen = ({ navigation }) => {
   );
 };
 
-// Los estilos permanecen igual...
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
