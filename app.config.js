@@ -3,7 +3,8 @@ import withFixedFirebaseModularHeaders from "./expo-plugins/withFixedFirebaseMod
 export default {
   expo: {
     name: "ClubPotros",
-    slug: "TorosClub",
+    slug: "club-potros-app",
+    owner: "s21sistemas", // ← AGREGAR ESTA LÍNEA
     version: "1.0.0",
     orientation: "portrait",
     icon: "./assets/logoPotros.jpg",
@@ -58,7 +59,7 @@ export default {
     },
     extra: {
       eas: {
-        projectId: "940bd2e2-f080-48f0-9ef7-9723472315f9"
+        projectId: "188b7c17-174d-408f-90b0-41e17117eae3"
       }
     },
     plugins: [
