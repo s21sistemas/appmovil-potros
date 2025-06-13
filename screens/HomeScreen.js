@@ -916,6 +916,7 @@ const TipoInscripcionForm = ({ formData, setFormData, errors, onNext, navigation
                   onChangeText={setSearchTerm}
                   maxLength={18}
                   autoCapitalize="characters"
+
                 />
                 
                 {searchError && <Text style={styles.errorText}>{searchError}</Text>}
@@ -1154,6 +1155,7 @@ useEffect(() => {
             style={styles.input}
             placeholder="Nombre del jugador(a)"
             value={formData.nombre}
+            placeholderTextColor="#444"
             onChangeText={(text) => setFormData({ ...formData, nombre: text })}
           />
           {errors.nombre && <Text style={styles.errorText}>{errors.nombre}</Text>}
@@ -1161,6 +1163,7 @@ useEffect(() => {
           <TextInput
             style={styles.input}
             placeholder="Apellido Paterno"
+            placeholderTextColor="#444"
             value={formData.apellido_p}
             onChangeText={(text) => setFormData({ ...formData, apellido_p: text })}
           />
@@ -1169,6 +1172,7 @@ useEffect(() => {
           <TextInput
             style={styles.input}
             placeholder="Apellido Materno"
+            placeholderTextColor="#444"
             value={formData.apellido_m}
             onChangeText={(text) => setFormData({ ...formData, apellido_m: text })}
           />
@@ -1243,6 +1247,7 @@ useEffect(() => {
           <TextInput
             style={styles.input}
             placeholder="Lugar de Nacimiento"
+            placeholderTextColor="#444"
             value={formData.lugar_nacimiento}
             onChangeText={(text) => setFormData({ ...formData, lugar_nacimiento: text })}
           />
@@ -1251,6 +1256,7 @@ useEffect(() => {
           <TextInput
             style={styles.input}
             placeholder="CURP (EN MAYUSCULAS)"
+            placeholderTextColor="#444"
             value={formData.curp}
             onChangeText={(text) => setFormData({ ...formData, curp: text.toUpperCase() })}
             maxLength={18}
@@ -1293,6 +1299,7 @@ const DatosContactoForm = ({ formData, setFormData, errors, onNext }) => {
         <TextInput
           style={styles.input}
           placeholder="Dirección"
+          placeholderTextColor="#444"
           value={formData.direccion}
           onChangeText={(text) => setFormData({ ...formData, direccion: text })}
         />
@@ -1300,6 +1307,7 @@ const DatosContactoForm = ({ formData, setFormData, errors, onNext }) => {
         <TextInput
           style={styles.input}
           placeholder="Teléfono"
+          placeholderTextColor="#444"
           value={formData.telefono}
           onChangeText={(text) => setFormData({ ...formData, telefono: text })}
           keyboardType="phone-pad"
@@ -1333,6 +1341,7 @@ const DatosEscolaresMedicosForm = ({ formData, setFormData, errors, onNext }) =>
       <TextInput
         style={styles.input}
         placeholder="Nombre de la Escuela"
+        placeholderTextColor="#444"
         value={formData.nombre_escuela}
         onChangeText={(text) => setFormData({ ...formData, nombre_escuela: text })}
       />
@@ -1340,6 +1349,7 @@ const DatosEscolaresMedicosForm = ({ formData, setFormData, errors, onNext }) =>
       <TextInput
         style={styles.input}
         placeholder="Alergias"
+        placeholderTextColor="#444"
         value={formData.alergias}
         onChangeText={(text) => setFormData({ ...formData, alergias: text })}
       />
@@ -1347,6 +1357,7 @@ const DatosEscolaresMedicosForm = ({ formData, setFormData, errors, onNext }) =>
       <TextInput
         style={styles.input}
         placeholder="Padecimientos"
+        placeholderTextColor="#444"
         value={formData.padecimientos}
         onChangeText={(text) => setFormData({ ...formData, padecimientos: text })}
       />
@@ -1354,6 +1365,7 @@ const DatosEscolaresMedicosForm = ({ formData, setFormData, errors, onNext }) =>
       <TextInput
         style={styles.input}
         placeholder="Peso (kg)"
+        placeholderTextColor="#444"
         value={formData.peso}
         onChangeText={(text) => setFormData({ ...formData, peso: text })}
         keyboardType="numeric"
@@ -1385,6 +1397,7 @@ const TransferenciaForm = ({ formData, setFormData, errors, onNext }) => {
       <TextInput
         style={styles.input}
         placeholder="Club de Origen"
+        placeholderTextColor="#444"
         value={formData.transferencia.club_anterior}
         onChangeText={(text) => handleChange('club_anterior', text)}
       />
@@ -1392,6 +1405,7 @@ const TransferenciaForm = ({ formData, setFormData, errors, onNext }) => {
       <TextInput
         style={styles.input}
         placeholder="Temporadas Jugadas"
+        placeholderTextColor="#444"
         value={formData.transferencia.temporadas_jugadas}
         onChangeText={(text) => handleChange('temporadas_jugadas', text)}
       />
@@ -1931,7 +1945,6 @@ const DocumentacionForm = ({ formData, setFormData, onSubmit, uploadProgress, cu
 // Estilos
 const styles = StyleSheet.create({
 
-
   safeArea: {
     flex: 1,
     paddingTop:50,
@@ -1951,8 +1964,10 @@ const styles = StyleSheet.create({
         overflow: 'hidden'
       }
     })
+
   },
   mainContent: {
+
     flex: 1,
     zIndex: 1,
     paddingHorizontal: 15,
@@ -1963,8 +1978,10 @@ const styles = StyleSheet.create({
         WebkitOverflowScrolling: 'touch'
       }
     })
+
   },
   scrollContent: {
+
     paddingBottom: 100,
     ...Platform.select({
       web: {
@@ -1972,8 +1989,10 @@ const styles = StyleSheet.create({
         flexGrow: 1
       }
     })
+
   },
   formContainer: {
+
     backgroundColor: '#fff',
     borderRadius: 10,
     padding: 20,
@@ -1983,6 +2002,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 5,
     elevation: 3,
+
   },
   title: {
     fontSize: 22,
@@ -2000,7 +2020,7 @@ const styles = StyleSheet.create({
   input: {
     borderWidth: 1,
     borderColor: '#ccc',
-    borderRadius: 5,
+    borderRadius: 15,
     padding: 15,
     marginBottom: 15,
     backgroundColor: '#fff',
@@ -2009,9 +2029,10 @@ const styles = StyleSheet.create({
   picker: {
     borderWidth: 1,
     borderColor: '#ccc',
-    borderRadius: 5,
+    borderRadius: 15,
     marginBottom: 15,
     backgroundColor: '#fff',
+    color:"#444444"
   },
   button: {
     backgroundColor: '#b51f28',
@@ -2026,6 +2047,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   secondaryButton: {
+
     backgroundColor: '#b51f28',
     padding: 10,
     borderRadius: 5,
@@ -2034,18 +2056,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#b51f28',
     maxWidth: 120,
+
   },
   secondaryButtonText: {
+
     color: '#fff',
     fontWeight: '500',
 
   },
   submitButton: {
+
     backgroundColor: '#b51f28',
     padding: 15,
     borderRadius: 5,
     alignItems: 'center',
     marginTop: 25,
+
   },
   submitButtonText: {
     color: '#fff',
@@ -2064,22 +2090,28 @@ const styles = StyleSheet.create({
     backgroundColor: '#b51f28',
     padding: 15,
     borderRadius: 5,
+
   },
   backButtonText: {
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 16,
   },
-  signatureContainer: {
+ signatureContainer: {
     height: 200,
     borderWidth: 1,
     borderColor: '#000',
     marginBottom: 10,
+    alignItems: 'center',        // ← AGREGAR
+    justifyContent: 'center',    // ← AGREGAR
+    backgroundColor: '#f9f9f9',  // ← AGREGAR (opcional, para ver mejor el área)
+    touchAction: 'none'
   },
   canvas: {
     flex: 1,
   },
   imagePreview: {
+
     width: 150,
     height: 150,
     borderRadius: 75,
@@ -2087,26 +2119,33 @@ const styles = StyleSheet.create({
     marginVertical: 10,
     borderWidth: 1,
     borderColor: '#ddd',
+
   },
   photoButtonsContainer: {
+
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 15,
     
   },
   linkText: {
+
     color: '#007BFF',
     textDecorationLine: 'underline',
     marginBottom: 15,
     fontSize: 16,
+
   },
   selectedDate: {
+
     paddingTop:10,
     fontSize: 16,
     marginBottom: 15,
     color: '#555555',
+
   },
   loadingOverlay: {
+
     position: 'absolute',
     top: 0,
     left: 0,
@@ -2115,58 +2154,77 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.8)',
+
   },
   uploadingText: {
+
     marginTop: 10,
     fontSize: 16,
     color: '#333333',
+
   },
   reinscripcionContainer: {
+
     marginTop: 20,
     padding: 15,
     backgroundColor: '#f9f9f9',
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#eeeeee',
+
   },
   playerInfoContainer: {
+
     marginTop: 20,
     padding: 15,
     backgroundColor: '#ffffff',
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#dddddd',
+
   },
   playerInfoTitle: {
+
     fontSize: 16,
     fontWeight: 'bold',
     marginBottom: 10,
     color: '#333333',
+
   },
   playerInfoText: {
+
     fontSize: 14,
     marginBottom: 5,
     color: '#555555',
+
   },
   playerImage: {
+
     width: 80,
     height: 80,
     borderRadius: 40,
     marginBottom: 10,
     alignSelf: 'center',
+
   },
   reinscribirButton: {
+
     backgroundColor: '#4CAF50',
     marginTop: 15,
+
   },
   formGroup: {
+
     marginBottom: 20,
+
   },
   label: {
+
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 10,
     color: '#444',
+
   },
   uploadButton: {
     backgroundColor: '#b51f28',
@@ -2175,6 +2233,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#ccc',
+
   },
   fileInfoContainer: {
     flexDirection: 'row',
@@ -2219,6 +2278,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   categoriaContainer: {
+
     marginTop: 10,
     marginBottom: 15,
     padding: 10,
@@ -2228,6 +2288,7 @@ const styles = StyleSheet.create({
     borderLeftColor: '#4682b4',
   },
   categoriaText: {
+
     fontSize: 16,
     color: '#333',
   },
