@@ -802,7 +802,7 @@ const generatePDF = async (pago) => {
 
                 {(pago.descuento && pago.descuento !== "0") && (
                   <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Descuento aplicado:</Text>
+                    <Text style={styles.detailLabel}>Descuento aplicado:$ </Text>
                     <Text style={styles.detailValue}>{pago.descuento}</Text>
                   </View>
                 )}

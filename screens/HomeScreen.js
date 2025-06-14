@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Alert, TextInput,
   Animated, Platform, PanResponder, Linking, ActivityIndicator,
@@ -67,16 +67,17 @@ const HomeScreen = ({ navigation }) => {
   const [currentUpload, setCurrentUpload] = useState(null);
   const signatureRef = useRef(null);
   const [categoria, setCategoria] = useState(null);
-  const steps = [
-    'GeneroForm',
-    'TipoInscripcionForm',
-    'DatosPersonalesForm',
-    'DatosContactoForm',
-    'DatosEscolaresMedicosForm',
-    ...(formData.tipo_inscripcion === 'transferencia' ? ['TransferenciaForm'] : []),
-    'FirmaFotoForm',
-    'DocumentacionForm',
-  ];
+ const steps = [
+  'GeneroForm',
+  'TipoInscripcionForm',
+  'DatosPersonalesForm',
+  'DatosContactoForm',
+  'DatosEscolaresMedicosForm',
+  ...(formData.tipo_inscripcion === 'transferencia' ? ['TransferenciaForm'] : []),
+  'FirmaForm',  // Nuevo paso independiente para firma
+  'FotoForm',   // Nuevo paso independiente para foto
+  'DocumentacionForm',
+];
 
   
 const safeUploadFile = async ({ uri, name, folder, type = null }) => {
@@ -206,43 +207,37 @@ const uploadBase64Image = async (base64String, fileName, folder) => {
 };
 
   const validateForm = () => {
-    const newErrors = {};
-    
-    switch (steps[currentStep]) {
-      case 'GeneroForm':
-        if (!formData.sexo) {
-          newErrors.sexo = 'Selecciona un género';
-        }
-        break;
-      case 'TipoInscripcionForm':
-        if (!formData.tipo_inscripcion) {
-          newErrors.tipo_inscripcion = 'Selecciona un tipo de inscripción';
-        }
-        break;
-      case 'DatosPersonalesForm':
-        if (!formData.nombre) newErrors.nombre = 'Nombre es requerido';
-        if (!formData.apellido_p) newErrors.apellido_p = 'Apellido paterno es requerido';
-        if (!formData.curp || formData.curp.length !== 18) newErrors.curp = 'CURP debe tener 18 caracteres';
-        break;
-      case 'FirmaFotoForm':
-
-        
-        // Validación unificada para web y móvil (ambos usan base64)
-        if (!formData.firma || formData.firma === '' || !formData.firma.startsWith('data:image')) {
-          newErrors.firma = 'Captura tu firma';
-
-        } else {
-
-        }
-        
-        if (!formData.foto_jugador) newErrors.foto_jugador = 'Sube una foto del jugador';
-        break;
-
-    }
-    
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
+  const newErrors = {};
+  
+  switch (steps[currentStep]) {
+    case 'GeneroForm':
+      if (!formData.sexo) {
+        newErrors.sexo = 'Selecciona un género';
+      }
+      break;
+    case 'TipoInscripcionForm':
+      if (!formData.tipo_inscripcion) {
+        newErrors.tipo_inscripcion = 'Selecciona un tipo de inscripción';
+      }
+      break;
+    case 'DatosPersonalesForm':
+      if (!formData.nombre) newErrors.nombre = 'Nombre es requerido';
+      if (!formData.apellido_p) newErrors.apellido_p = 'Apellido paterno es requerido';
+      if (!formData.curp || formData.curp.length !== 18) newErrors.curp = 'CURP debe tener 18 caracteres';
+      break;
+    case 'FirmaForm':
+      if (!formData.firma || formData.firma === '' || !formData.firma.startsWith('data:image')) {
+        newErrors.firma = 'Captura tu firma';
+      }
+      break;
+    case 'FotoForm':
+      if (!formData.foto_jugador) newErrors.foto_jugador = 'Sube una foto del jugador';
+      break;
+  }
+  
+  setErrors(newErrors);
+  return Object.keys(newErrors).length === 0;
+};
 
   const handleNextStep = () => {
     if (validateForm()) {
@@ -368,6 +363,8 @@ const uploadBase64Image = async (base64String, fileName, folder) => {
   };
   
 const handleSubmit = async () => {
+
+  let firmaURL = null;
   if (!validateForm()) {
     Alert.alert('Error', 'Por favor completa todos los campos requeridos');
     return;
@@ -677,35 +674,37 @@ const processPayments = async (playerId, formData, temporadaActiva) => {
   }
 };
   
-  const renderForm = () => {
-    switch (steps[currentStep]) {
-      case 'GeneroForm':
-        return <GeneroForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} />;
-      case 'TipoInscripcionForm':
-        return <TipoInscripcionForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} navigation={navigation} />;
-      case 'DatosPersonalesForm':
-        return <DatosPersonalesForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} />;
-      case 'DatosContactoForm':
-        return <DatosContactoForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} />;
-      case 'DatosEscolaresMedicosForm':
-        return <DatosEscolaresMedicosForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} />;
-      case 'TransferenciaForm':
-        return <TransferenciaForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} />;
-      case 'FirmaFotoForm':
-        return <FirmaFotoForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} signatureRef={signatureRef} />;
-      case 'DocumentacionForm':
-        return <DocumentacionForm 
-          formData={formData} 
-          setFormData={setFormData} 
-          onSubmit={handleSubmit} 
-          uploadProgress={uploadProgress}
-          currentUpload={currentUpload}
-          handleSelectFile={handleSelectFile}
-        />;
-      default:
-        return null;
-    }
-  };
+const renderForm = () => {
+  switch (steps[currentStep]) {
+    case 'GeneroForm':
+      return <GeneroForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} />;
+    case 'TipoInscripcionForm':
+      return <TipoInscripcionForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} navigation={navigation} />;
+    case 'DatosPersonalesForm':
+      return <DatosPersonalesForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} />;
+    case 'DatosContactoForm':
+      return <DatosContactoForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} />;
+    case 'DatosEscolaresMedicosForm':
+      return <DatosEscolaresMedicosForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} />;
+    case 'TransferenciaForm':
+      return <TransferenciaForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} />;
+    case 'FirmaForm':
+      return <FirmaForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} signatureRef={signatureRef} />;
+    case 'FotoForm':
+      return <FotoForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} />;
+    case 'DocumentacionForm':
+      return <DocumentacionForm 
+        formData={formData} 
+        setFormData={setFormData} 
+        onSubmit={handleSubmit} 
+        uploadProgress={uploadProgress}
+        currentUpload={currentUpload}
+        handleSelectFile={handleSelectFile}
+      />;
+    default:
+      return null;
+  }
+};
 
 
 
@@ -1333,6 +1332,7 @@ const DatosEscolaresMedicosForm = ({ formData, setFormData, errors, onNext }) =>
         style={styles.picker}
       >
         <Picker.Item label="Selecciona el grado escolar" value="" />
+        <Picker.Item label="Kinder" value="kinder" />
         <Picker.Item label="Primaria" value="primaria" />
         <Picker.Item label="Secundaria" value="secundaria" />
         <Picker.Item label="Preparatoria" value="preparatoria" />
@@ -1429,8 +1429,8 @@ const TransferenciaForm = ({ formData, setFormData, errors, onNext }) => {
   );
 };
 
-// Componente FirmaFotoForm
-const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) => {
+
+const FirmaForm = ({ formData, setFormData, errors, onNext, signatureRef }) => {
   const [hasCameraPermission, setHasCameraPermission] = useState(null);
   const [hasGalleryPermission, setHasGalleryPermission] = useState(null);
   
@@ -1439,19 +1439,9 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
   const [currentPath, setCurrentPath] = useState([]);
   const [isDrawing, setIsDrawing] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      const cameraStatus = await ImagePicker.requestCameraPermissionsAsync();
-      const galleryStatus = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      setHasCameraPermission(cameraStatus.status === 'granted');
-      setHasGalleryPermission(galleryStatus.status === 'granted');
-    })();
-  }, []);
-
   // Función para convertir SVG a Base64 (Web)
   const convertSvgToBase64 = async () => {
     try {
-      // Crear un SVG string con todos los paths
       const svgWidth = 300;
       const svgHeight = 150;
       
@@ -1472,7 +1462,6 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
         </svg>
       `;
 
-      // Convertir SVG a Canvas y luego a Base64
       return new Promise((resolve) => {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
@@ -1481,7 +1470,6 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
         canvas.width = svgWidth;
         canvas.height = svgHeight;
         
-        // Fondo blanco
         ctx.fillStyle = 'white';
         ctx.fillRect(0, 0, svgWidth, svgHeight);
         
@@ -1503,49 +1491,30 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
     }
   };
 
-  // Funciones para React Native (SignatureCanvas)
   const handleConfirmSignature = () => {
-    console.log('=== INTENTANDO CAPTURAR FIRMA ===');
-    
     if (signatureRef.current) {
       signatureRef.current.readSignature();
     } else {
-      console.log('ERROR: signatureRef no está disponible');
       Alert.alert('Error', 'No se pudo acceder al área de firma');
     }
   };
 
   const handleClearSignature = () => {
-    console.log('=== LIMPIANDO FIRMA ===');
-    
     if (Platform.OS === 'web') {
       clearCanvasWeb();
     } else {
       if (signatureRef.current) {
         signatureRef.current.clearSignature();
         setFormData(prev => ({ ...prev, firma: '' }));
-      } else {
-        console.log('ERROR: signatureRef no está disponible para limpiar');
       }
     }
   };
 
   const handleSignatureOK = (signature) => {
-    console.log('=== FIRMA CAPTURADA EXITOSAMENTE (MÓVIL) ===');
-    console.log('Signature length:', signature.length);
-    console.log('Signature preview:', signature.substring(0, 50) + '...');
-    
     setFormData(prev => ({ ...prev, firma: signature }));
     Alert.alert('Éxito', 'Firma capturada correctamente');
   };
 
-  const handleSignatureError = (error) => {
-    console.log('=== ERROR EN FIRMA ===');
-    console.log('Error:', error);
-    Alert.alert('Error', 'No se pudo capturar la firma. Asegúrate de haber dibujado algo.');
-  };
-
-  // Funciones para Web (SVG)
   const panResponder = PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
@@ -1565,11 +1534,9 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
       setPaths(newPaths);
       setCurrentPath([]);
       
-      // Convertir a base64 automáticamente después de dibujar
       if (newPaths.length > 0) {
         const base64 = await convertSvgToBase64();
         if (base64) {
-          console.log('=== FIRMA CAPTURADA EXITOSAMENTE (WEB) ===');
           setFormData(prev => ({ ...prev, firma: base64 }));
         }
       }
@@ -1589,7 +1556,6 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
     setFormData(prev => ({ ...prev, firma: '' }));
   };
 
-  // Función para confirmar firma en web
   const handleConfirmSignatureWeb = async () => {
     if (paths.length === 0) {
       Alert.alert('Error', 'Por favor dibuja tu firma antes de confirmar');
@@ -1598,70 +1564,10 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
 
     const base64 = await convertSvgToBase64();
     if (base64) {
-      console.log('=== FIRMA CONFIRMADA EN WEB ===');
       setFormData(prev => ({ ...prev, firma: base64 }));
       Alert.alert('Éxito', 'Firma capturada correctamente');
     } else {
       Alert.alert('Error', 'No se pudo procesar la firma');
-    }
-  };
-
-  const handleSelectFoto = async () => {
-    if (!hasGalleryPermission) {
-      Alert.alert('Permisos denegados', 'Necesitas permitir el acceso a la galería para seleccionar una imagen. Cierra la app y ve a "Configuración> Apps > Club Potros" y otorga los permisos');
-      return;
-    }
-
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.3,
-      });
-
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        const selectedImage = result.assets[0];
-        setFormData(prev => ({
-          ...prev,
-          foto_jugador: {
-            uri: selectedImage.uri,
-            name: `foto_jugador_${Date.now()}.jpg`,
-            type: selectedImage.mimeType || 'image/jpeg'
-          }
-        }));
-      }
-    } catch (error) {
-      console.error('Error al seleccionar la foto:', error);
-      Alert.alert('Error', 'No se pudo seleccionar la imagen');
-    }
-  };
-
-  const handleTakePhoto = async () => {
-    if (!hasCameraPermission) {
-      Alert.alert('Permisos denegados', 'Necesitas permitir el acceso a la cámara para tomar una foto. Cierra la app y ve a "Configuración> Apps > Club Potros" y otorga los permisos');
-      return;
-    }
-
-    try {
-      const result = await ImagePicker.launchCameraAsync({
-        aspect: [4, 3],
-        quality: 0.3,
-        base64: false,
-      });
-
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        const uri = result.assets[0].uri;
-        setFormData((prevData) => ({
-          ...prevData,
-          foto_jugador: {
-            uri: uri,
-            name: `foto_jugador_${Date.now()}.jpg`,
-            type: 'image/jpeg'
-          }
-        }));
-      }
-    } catch (error) {
-      console.error('Error al tomar la foto:', error);
     }
   };
 
@@ -1672,19 +1578,14 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.formContainer}>
-        <Text style={styles.title}>Firma y Foto</Text>
-        
-        <Text style={styles.sectionTitle}>Firma:</Text>
+        <Text style={styles.title}>Captura tu firma</Text>
         
         {Platform.OS !== 'web' ? (
-          // Para React Native - usar SignatureCanvas
           <>
             <View style={styles.signatureContainer}>
               <SignatureCanvas
                 ref={signatureRef}
                 onOK={handleSignatureOK}
-                onEmpty={handleSignatureError}
-                onClear={() => console.log('Firma limpiada por SignatureCanvas')}
                 descriptionText="Dibuje su firma aquí"
                 clearText="Limpiar"
                 confirmText="Confirmar"
@@ -1696,24 +1597,6 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
                 maxWidth={4}
                 trimWhiteSpace={true}
                 autoClear={false}
-                webStyle={`
-                  .m-signature-pad {
-                    box-shadow: none;
-                    border: none;
-                    margin: 0;
-                  }
-                  .m-signature-pad--body {
-                    border: none;
-                    margin: 0;
-                  }
-                  .m-signature-pad--footer {
-                    display: none;
-                  }
-                  canvas {
-                    width: 100% !important;
-                    height: 180px !important;
-                  }
-                `}
               />
             </View>
             
@@ -1734,7 +1617,6 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
             </View>
           </>
         ) : (
-          // Para Web - usar SVG con PanResponder
           <>
             <View style={styles.signatureContainer} {...panResponder.panHandlers}>
               <Svg style={styles.canvas} width={300} height={150}>
@@ -1775,13 +1657,11 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
           </>
         )}
 
-        {/* Mostrar estado de la firma */}
         {formData.firma && formData.firma !== '' && (
           <>
             <Text style={styles.signatureStatus}>
               ✅ Firma capturada correctamente
             </Text>
-            {/* Preview de la firma en web */}
             {Platform.OS === 'web' && formData.firma.startsWith('data:image') && (
               <Image
                 source={{ uri: formData.firma }}
@@ -1794,13 +1674,107 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
         
         {errors.firma && <Text style={styles.errorText}>{errors.firma}</Text>}
         
-        <Text style={styles.sectionTitle}>Foto del Jugador:</Text>
+        <TouchableOpacity 
+          style={styles.button} 
+          onPress={onNext}
+          disabled={!formData.firma || formData.firma === ''}
+        >
+          <Text style={styles.buttonText}>Continuar</Text>
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
+  );
+};
+
+
+const FotoForm = ({ formData, setFormData, errors, onNext }) => {
+  const [hasCameraPermission, setHasCameraPermission] = useState(null);
+  const [hasGalleryPermission, setHasGalleryPermission] = useState(null);
+  
+  useEffect(() => {
+    (async () => {
+      const cameraStatus = await ImagePicker.requestCameraPermissionsAsync();
+      const galleryStatus = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      setHasCameraPermission(cameraStatus.status === 'granted');
+      setHasGalleryPermission(galleryStatus.status === 'granted');
+    })();
+  }, []);
+
+  const handleSelectFoto = async () => {
+    if (!hasGalleryPermission) {
+      Alert.alert('Permisos denegados', 'Necesitas permitir el acceso a la galería');
+      return;
+    }
+
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.3,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const selectedImage = result.assets[0];
+        setFormData(prev => ({
+          ...prev,
+          foto_jugador: {
+            uri: selectedImage.uri,
+            name: `foto_jugador_${Date.now()}.jpg`,
+            type: selectedImage.mimeType || 'image/jpeg'
+          }
+        }));
+      }
+    } catch (error) {
+      console.error('Error al seleccionar la foto:', error);
+      Alert.alert('Error', 'No se pudo seleccionar la imagen');
+    }
+  };
+
+  const handleTakePhoto = async () => {
+    if (!hasCameraPermission) {
+      Alert.alert('Permisos denegados', 'Necesitas permitir el acceso a la cámara');
+      return;
+    }
+
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        aspect: [4, 3],
+        quality: 0.3,
+        base64: false,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const uri = result.assets[0].uri;
+        setFormData((prevData) => ({
+          ...prevData,
+          foto_jugador: {
+            uri: uri,
+            name: `foto_jugador_${Date.now()}.jpg`,
+            type: 'image/jpeg'
+          }
+        }));
+      }
+    } catch (error) {
+      console.error('Error al tomar la foto:', error);
+    }
+  };
+
+  return (
+    <ScrollView 
+      style={styles.mainContent}
+      contentContainerStyle={styles.scrollContent}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.formContainer}>
+        <Text style={styles.title}>Foto del Jugador</Text>
+        
         {formData.foto_jugador && (
           <Image
             source={{ uri: formData.foto_jugador.uri }}
             style={styles.imagePreview}
           />
         )}
+        
         <View style={styles.photoButtonsContainer}>
           <TouchableOpacity style={styles.secondaryButton} onPress={handleTakePhoto}>
             <Text style={styles.secondaryButtonText}>Tomar Foto</Text>
@@ -1809,15 +1783,21 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
             <Text style={styles.secondaryButtonText}>Ver Galería</Text>
           </TouchableOpacity>
         </View>
+        
         {errors.foto_jugador && <Text style={styles.errorText}>{errors.foto_jugador}</Text>}
         
-        <TouchableOpacity style={styles.button} onPress={onNext}>
+        <TouchableOpacity 
+          style={styles.button} 
+          onPress={onNext}
+          disabled={!formData.foto_jugador}
+        >
           <Text style={styles.buttonText}>Continuar</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
   );
 };
+
 
 
 const DocumentacionForm = ({ formData, setFormData, onSubmit, uploadProgress, currentUpload, handleSelectFile }) => {
@@ -2107,6 +2087,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f9f9f9',  // ← AGREGAR (opcional, para ver mejor el área)
     touchAction: 'none'
   },
+  
   canvas: {
     flex: 1,
   },
